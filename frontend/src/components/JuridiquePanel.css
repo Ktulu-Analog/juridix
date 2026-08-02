@@ -1,0 +1,4108 @@
+/* ============================================================================
+   Juridix — JuridiquePanel.css
+   ============================================================================
+   Interface de recherche juridique professionnelle, pensée pour un usage
+   immédiat par un juriste habitué à Doctrine, Lexis 360 ou Dalloz.fr :
+
+     • Doctrine  → layout 3 colonnes, fil d'Ariane contextuel, citations et
+                   notas mis en surbrillance dans le corps du texte.
+     • Lexis     → panneau de filtres structuré en facettes repliables,
+                   métadonnées riches sur chaque résultat (nature, état,
+                   juridiction, solution, dates de signature/publication).
+     • Dalloz    → typographie sobre (empattements pour le corps de texte),
+                   hiérarchie visuelle nette des résultats, densité élevée
+                   sans surcharge.
+
+   Suit les tokens CSS de index.css :
+     --bg-primary / --bg-secondary / --bg-tertiary / --bg-hover
+     --text-primary / --text-secondary / --text-tertiary
+     --border-light / --border-medium
+     --blue-light / --blue-mid / --blue-dark
+     --amber-light / --amber-dark
+     --radius-sm / --radius-md / --radius-lg
+     --shadow-sm / --shadow-md
+     --font-body / --font-mono / --font-size-base
+   ============================================================================ */
+
+.jur-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
+  --jur-serif: 'Georgia', 'Iowan Old Style', 'Source Serif Pro', 'Times New Roman', serif;
+}
+
+/* ── En-tête général ─────────────────────────────────────────────────────── */
+
+.jur-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.jur-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.jur-header-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.jur-header-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+}
+
+.jur-header-sub {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  padding: 2px 7px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Fil d'Ariane global dans l'en-tête : Outils juridiques › Fond › Requête */
+.jur-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.jur-breadcrumb-sep {
+  color: var(--border-medium);
+  flex-shrink: 0;
+}
+
+.jur-breadcrumb-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jur-breadcrumb-item--current {
+  color: var(--text-primary);
+  font-weight: 500;
+  max-width: 260px;
+}
+
+.jur-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.jur-header-global-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+  margin-right: 6px;
+  border-right: 1px solid var(--border-light);
+}
+
+/* ── Corps : grille 3 colonnes ───────────────────────────────────────────── */
+/*  ① Facettes (Lexis)  ② Résultats (Dalloz)  ③ Visionneuse (Doctrine)      */
+
+.jur-body {
+  display: grid;
+  grid-template-columns: 232px 372px 1fr;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  transition: grid-template-columns 0.18s ease;
+}
+
+.jur-body--facets-closed {
+  grid-template-columns: 0 372px 1fr;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   COLONNE 1 — FACETTES STRUCTURÉES (inspiration Lexis)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.jur-facets {
+  display: flex;
+  flex-direction: column;
+  width: 232px;
+  border-right: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  overflow-y: auto;
+  flex-shrink: 0;
+  transition: width 0.18s ease, border-color 0.18s ease;
+}
+
+.jur-facets--closed {
+  width: 0;
+  min-width: 0;
+  border-color: transparent;
+  overflow: hidden;
+}
+
+.jur-facets-scrim {
+  display: none;
+}
+
+.jur-facets-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  padding: 12px 14px 8px;
+  flex-shrink: 0;
+}
+
+/* Onglets de source — au sommet de la colonne de facettes */
+.jur-source-tabs {
+  display: flex;
+  margin: 0 10px 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.jur-source-tab {
+  flex: 1;
+  padding: 7px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, box-shadow 0.13s;
+  font-family: var(--font-body);
+}
+
+.jur-source-tab:hover {
+  color: var(--text-primary);
+}
+
+.jur-source-tab--active {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Groupe de facette = section repliable */
+.jur-facet-group {
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.jur-facet-group:last-of-type {
+  border-bottom: none;
+}
+
+.jur-facet-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 9px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  text-align: left;
+}
+
+.jur-facet-summary:hover {
+  background: var(--bg-hover);
+}
+
+.jur-facet-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jur-facet-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--blue-dark);
+  background: var(--blue-light);
+  border-radius: 8px;
+  padding: 1px 6px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.jur-facet-chevron {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.jur-facet-chevron--open {
+  transform: rotate(90deg);
+}
+
+.jur-facet-body {
+  padding: 2px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Liste de fonds (radio-like) façon Lexis : libellé + petit indicateur */
+.jur-facet-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+}
+
+.jur-facet-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.jur-facet-option--active {
+  background: var(--blue-light);
+  color: var(--blue-dark);
+  font-weight: 600;
+}
+
+.jur-facet-option input[type="radio"],
+.jur-facet-option input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--blue-mid);
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.jur-facet-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Plage de dates dans les facettes */
+.jur-facet-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jur-facet-date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jur-facet-date-row .jur-label {
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.jur-input--date-sm {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 5px 6px;
+  color: var(--text-primary);
+  outline: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.jur-input--date-sm:focus {
+  border-color: var(--blue-mid);
+}
+
+/* Libellé compact générique utilisé dans les corps de facette (hors la
+   variante datée qui a sa propre largeur fixe ci-dessus). */
+.jur-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.jur-label--spaced {
+  display: block;
+  margin-top: 10px;
+}
+
+/* Texte d'aide sous un groupe de facettes (ex : fonds sans recherche
+   plein texte, explications d'usage). */
+.jur-facet-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  font-style: italic;
+  margin: 2px 0 0;
+}
+
+/* Champ texte compact générique (IDCC, années, tags…) dans une facette. */
+.jur-input--sm {
+  font-family: var(--font-body);
+  font-size: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  color: var(--text-primary);
+  outline: none;
+  width: 100%;
+}
+
+.jur-input--sm:focus {
+  border-color: var(--blue-mid);
+}
+
+/* Saisie de tags (matière, siège de juridiction) : champ + bouton d'ajout,
+   puces amovibles en dessous. */
+.jur-tag-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.jur-tag-input-row .jur-input--sm {
+  flex: 1;
+  min-width: 0;
+}
+
+.jur-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.jur-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--blue-dark);
+  background: var(--blue-light);
+  border-radius: 999px;
+  padding: 3px 6px 3px 10px;
+  line-height: 1.4;
+}
+
+.jur-tag-chip button {
+  all: unset;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--blue-dark);
+  opacity: 0.7;
+  padding: 2px;
+}
+
+.jur-tag-chip button:hover {
+  opacity: 1;
+}
+
+/* Option de facette présentée comme un interrupteur simple (ex : décisions
+   à intérêt particulier) — même gabarit que .jur-facet-option, séparée par
+   un léger filet au-dessus pour la distinguer d'une liste à cocher. */
+.jur-facet-option--toggle {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* Bloc de téléchargement PDF (fonds BOCC / débats / questions écrites /
+   documents administratifs — fonds purement composés de fichiers PDF, sans
+   contenu textuel structuré côté API). */
+.jur-pdf-download {
+  margin: 16px 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jur-doc-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: -8px 0 12px;
+}
+
+/* Tri — facette dédiée */
+.jur-facet-sort {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 6px 7px;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+.jur-facet-sort:focus {
+  border-color: var(--blue-mid);
+}
+
+/* Bouton réinitialiser les filtres */
+.jur-facets-reset {
+  margin: 6px 14px 12px;
+  padding: 7px 10px;
+  flex-shrink: 0;
+}
+
+.jur-facets-footer {
+  margin-top: auto;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-light);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   COLONNE 2 — RÉSULTATS (inspiration Dalloz : sobre, hiérarchisé)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.jur-results-col {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-light);
+  overflow: hidden;
+  background: var(--bg-primary);
+  min-width: 0;
+}
+
+/* Barre de recherche */
+.jur-searchbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+  background: var(--bg-primary);
+}
+
+.jur-searchbar-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.jur-input {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.13s, background 0.13s;
+}
+
+.jur-input:focus {
+  border-color: var(--blue-mid);
+  background: var(--bg-primary);
+}
+
+.jur-input--query {
+  flex: 1;
+  min-width: 0;
+}
+
+.jur-searchbar-hint {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  padding: 5px 1px 0;
+}
+
+/* Résumé des résultats — total + tri rapide, ligne dense façon Dalloz */
+.jur-results-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.jur-results-summary-count strong {
+  color: var(--text-primary);
+}
+
+.jur-results-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Liste de résultats */
+.jur-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.jur-result-item {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.13s, background 0.13s, box-shadow 0.13s;
+  font-family: var(--font-body);
+}
+
+.jur-result-item:hover {
+  border-color: var(--border-medium);
+  background: var(--bg-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.jur-result-item--active {
+  border-left-color: var(--blue-mid);
+  border-color: var(--border-medium);
+  background: var(--blue-light);
+}
+
+/* Ligne 1 : nature/type du document (hiérarchie typographique Dalloz) */
+.jur-result-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.jur-result-kicker-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--blue-dark);
+}
+
+.jur-result-title {
+  font-family: var(--jur-serif);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Sous-titre (pourvoi n°, solution) sous le titre principal Judilibre */
+.jur-result-subtitle {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jur-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.jur-result-preview {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px dashed var(--border-light);
+}
+
+/* Citations/occurrences en surbrillance — signature Doctrine */
+.jur-result-preview em,
+.jur-result-preview mark,
+.jur-viewer-content mark,
+.jur-viewer-content em.jur-hl {
+  background: color-mix(in srgb, var(--amber-light) 75%, transparent);
+  color: var(--amber-dark);
+  font-style: normal;
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 0.5px 2px;
+}
+
+/* ── Squelettes de chargement ────────────────────────────────────────────── */
+
+.jur-loading-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.jur-result-skeleton {
+  height: 76px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 25%,
+    var(--border-light) 50%,
+    var(--bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: jur-shimmer 1.4s infinite;
+}
+
+@keyframes jur-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+
+.jur-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.jur-pagination-total {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.jur-pagination-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jur-pagination-page {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 40px;
+  text-align: center;
+}
+
+/* ── Favoris (panneau glissant dans la colonne résultats) ──────────────── */
+
+.jur-favorites {
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+.jur-favorites-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   COLONNE 3 — VISIONNEUSE (inspiration Doctrine)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.jur-viewer {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+  min-width: 0;
+}
+
+.jur-viewer-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-tertiary);
+  padding: 40px;
+}
+
+.jur-viewer-empty-icon {
+  font-size: 38px;
+  opacity: 0.35;
+}
+
+.jur-viewer-empty-text {
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+.jur-viewer-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* En-tête de la visionneuse : fil d'Ariane du document + actions */
+.jur-viewer-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border-light);
+  /* Fond légèrement distinct du header global pour créer une séparation claire */
+  background: var(--bg-primary);
+  flex-shrink: 0;
+  /* Ombre subtile vers le bas pour marquer la limite avec le contenu */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Ligne 1 : fil d'Ariane seul */
+.jur-viewer-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px 6px;
+  min-height: 32px;
+}
+
+/* Fil d'Ariane du document affiché — élément signature Doctrine */
+.jur-viewer-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.jur-viewer-breadcrumb-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  flex-shrink: 1;
+}
+
+.jur-viewer-breadcrumb-item--current {
+  color: var(--text-primary);
+  font-weight: 600;
+  max-width: 260px;
+}
+
+.jur-viewer-breadcrumb-sep {
+  color: var(--border-medium);
+  flex-shrink: 0;
+}
+
+/* Ligne 2 : métadonnées + boutons d'action — séparée du fil d'Ariane */
+.jur-viewer-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 16px 7px;
+  border-top: 1px solid var(--border-medium, #d1d5db);
+  flex-wrap: nowrap;
+  min-width: 0;
+  background: var(--bg-secondary);
+}
+
+.jur-viewer-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Groupe de boutons d'action — toujours à droite de la ligne meta */
+.jur-viewer-actions-top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Boutons avec label (Dossier, Versions, Notes) */
+.jur-btn-icon--label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  line-height: 1.4;
+}
+
+.jur-btn-icon--label:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.jur-btn-icon--label.jur-btn-icon--active {
+  color: var(--blue-dark);
+  background: var(--blue-light, #dbeafe);
+  border-color: var(--blue-mid, #3b82f6);
+}
+
+.jur-btn-icon-label {
+  font-size: 11px;
+}
+
+/* Icône emoji dans les boutons — taille fixe pour éviter les débordements */
+.jur-btn-icon--label > span:first-child {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Corps du document — typographie Dalloz : empattements, interligne large */
+.jur-viewer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 36px 40px;
+}
+
+.jur-viewer-content--markdown {
+  font-family: var(--jur-serif);
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--text-primary);
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.jur-viewer-content--markdown h1 {
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-bottom: 4px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--blue-dark);
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.jur-viewer-content--markdown h2 {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--blue-dark);
+  margin-top: 28px;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.jur-viewer-content--markdown h3 {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 18px;
+  margin-bottom: 6px;
+}
+
+/* Bloc de métadonnées (lignes N°/ECLI/Solution…) directement sous le h1 */
+.jur-viewer-content--markdown h1 + p {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  margin-top: 0;
+}
+
+.jur-viewer-content--markdown h1 + p strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.jur-viewer-content--markdown strong {
+  font-weight: 700;
+}
+
+/* Paragraphes du texte de décision — justifiés comme Doctrine */
+.jur-viewer-content--markdown p {
+  margin-bottom: 14px;
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* Premier paragraphe directement après le séparateur horizontal = texte de décision */
+.jur-viewer-content--markdown hr + h2 + p,
+.jur-viewer-content--markdown hr + h2 ~ p {
+  line-height: 1.85;
+  font-size: 14px;
+}
+
+/* Le séparateur avant le texte de décision */
+.jur-viewer-content--markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 24px 0 20px;
+}
+
+/* Le fil d'Ariane (sectionParentTitre) rendu en blockquote — distingué
+   visuellement d'une citation classique, façon "chemin contextuel" Doctrine */
+.jur-viewer-content--markdown > blockquote.md-blockquote:first-of-type {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: normal;
+  background: var(--bg-secondary);
+  border-left: 2px solid var(--blue-mid);
+  margin: 0 0 18px;
+  padding: 7px 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Citations / notas en bloc dans le corps du texte */
+.jur-viewer-content--markdown blockquote.md-blockquote:not(:first-of-type) {
+  font-family: var(--jur-serif);
+  font-style: italic;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--amber-dark);
+  background: color-mix(in srgb, var(--amber-light) 45%, transparent);
+  margin: 14px 0;
+  padding: 8px 14px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.jur-viewer-content--markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 20px 0;
+}
+
+.jur-viewer-content--markdown ul,
+.jur-viewer-content--markdown ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+
+.jur-viewer-content--markdown li {
+  margin-bottom: 4px;
+}
+
+.jur-viewer-content--markdown p {
+  margin-bottom: 12px;
+}
+
+/* ── Tags / métadonnées riches (Lexis) ──────────────────────────────────── */
+
+.jur-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+
+.jur-tag--ok {
+  background: color-mix(in srgb, #1a9e72 12%, transparent);
+  color: #1a9e72;
+  border-color: color-mix(in srgb, #1a9e72 25%, transparent);
+}
+
+.jur-tag--muted {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+.jur-tag--blue {
+  background: var(--blue-light);
+  color: var(--blue-dark);
+  border-color: color-mix(in srgb, var(--blue-mid) 20%, transparent);
+}
+
+.jur-tag--source {
+  background: var(--amber-light);
+  color: var(--amber-dark);
+  border-color: color-mix(in srgb, var(--amber-dark) 20%, transparent);
+}
+
+.jur-date {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ── Boutons ─────────────────────────────────────────────────────────────── */
+
+.jur-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, border-color 0.13s, box-shadow 0.13s;
+  white-space: nowrap;
+}
+
+.jur-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+}
+
+.jur-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.jur-btn--primary {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border-color: var(--text-primary);
+  padding: 7px 11px;
+}
+
+.jur-btn--primary:hover:not(:disabled) {
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
+  color: var(--bg-primary);
+}
+
+.jur-btn--sm {
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+.jur-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.jur-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.13s, color 0.13s, border-color 0.13s;
+  font-family: var(--font-body);
+  position: relative;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.jur-btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+.jur-btn-icon--active {
+  color: #f59e0b;
+}
+
+.jur-btn-link {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-family: var(--font-body);
+}
+
+.jur-btn-link:hover {
+  color: var(--text-primary);
+}
+
+/* ── Badge compteur ──────────────────────────────────────────────────────── */
+
+.jur-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--blue-mid);
+  color: white;
+  border-radius: 7px;
+  padding: 0 3px;
+  /* Positionné en superposition sur le bouton icône parent (.jur-btn-icon) */
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  pointer-events: none;
+}
+
+/* ── Erreurs ─────────────────────────────────────────────────────────────── */
+
+.jur-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 10px 12px;
+  background: var(--red-light, #fcebeb);
+  border: 1px solid color-mix(in srgb, var(--red-dark, #a32d2d) 20%, transparent);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--red-dark, #a32d2d);
+  margin: 8px;
+}
+
+.jur-error--doc {
+  margin: 16px;
+}
+
+.jur-error-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* ── État vide ───────────────────────────────────────────────────────────── */
+
+.jur-empty {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+
+.jur-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--border-medium);
+  border-top-color: var(--blue-mid);
+  border-radius: 50%;
+  animation: jur-spin 0.6s linear infinite;
+}
+
+.jur-spinner--sm {
+  width: 11px;
+  height: 11px;
+}
+
+.jur-spinner--lg {
+  width: 24px;
+  height: 24px;
+  border-width: 3px;
+}
+
+@keyframes jur-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Responsive : repli progressif des colonnes ─────────────────────────── */
+
+@media (max-width: 1180px) {
+  .jur-body {
+    grid-template-columns: 200px 340px 1fr;
+  }
+  .jur-body--facets-closed {
+    grid-template-columns: 0 340px 1fr;
+  }
+}
+
+@media (max-width: 980px) {
+  .jur-body,
+  .jur-body--facets-closed {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  /* En dessous de 980px, les facettes ne réservent plus de colonne :
+     elles s'ouvrent en overlay plein écran au-dessus des résultats. */
+  .jur-facets {
+    display: none;
+    width: 100%;
+  }
+
+  .jur-facets:not(.jur-facets--closed) {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+  }
+
+  .jur-facets-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 19;
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  .jur-results-col {
+    grid-column: 1;
+  }
+
+  .jur-viewer {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .jur-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .jur-results-col {
+    grid-column: 1;
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
+    max-height: 50vh;
+  }
+
+  .jur-viewer {
+    grid-column: 1;
+  }
+}
+
+/* ── Bouton filtres (burger, ouvre/ferme la colonne facettes) ───────────── */
+
+.jur-filters-toggle {
+  display: inline-flex;
+}
+
+.jur-burger-icon {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 13px;
+  flex-shrink: 0;
+}
+
+.jur-burger-icon span {
+  display: block;
+  height: 1.6px;
+  width: 100%;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+/* ── Résultat carte — dossier overlay ───────────────────────────────────── */
+
+.jur-result-item {
+  position: relative;
+}
+
+.jur-result-item-main {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 10px 12px;
+  cursor: pointer;
+  padding-right: 36px; /* espace pour le bouton dossier */
+}
+
+.jur-result-dossier-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.jur-result-item:hover .jur-result-dossier-btn,
+.jur-result-dossier-btn--active {
+  opacity: 1 !important;
+}
+
+.jur-result-dossier-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.jur-result-dossier-btn--active {
+  color: var(--blue-dark);
+}
+
+/* ── Badge dossier ───────────────────────────────────────────────────────── */
+
+.jur-badge--dossier {
+  background: var(--blue-dark);
+  color: #fff;
+}
+
+/* ── Panneau Dossier ─────────────────────────────────────────────────────── */
+
+.jur-dossier-panel {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  z-index: 200;
+  width: 420px;
+  max-height: calc(100vh - 80px);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.jur-dossier-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.jur-dossier-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.jur-dossier-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.jur-dossier-empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.jur-dossier-empty-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+}
+
+.jur-dossier-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.jur-dossier-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  margin-bottom: 6px;
+  background: var(--bg-primary);
+  transition: background 0.12s;
+}
+
+.jur-dossier-item:hover {
+  background: var(--bg-hover);
+}
+
+.jur-dossier-item-num {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--blue-dark);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.jur-dossier-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.jur-dossier-item-titre {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jur-dossier-item-meta {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.jur-dossier-item-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: color 0.12s, background 0.12s;
+}
+
+.jur-dossier-item-remove:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* ── LLM dossier ─────────────────────────────────────────────────────────── */
+
+.jur-dossier-llm {
+  border-top: 1px solid var(--border-light);
+  padding: 14px;
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.jur-dossier-llm-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jur-dossier-llm-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.jur-dossier-llm-modes {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.jur-dossier-llm-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  font-size: 20px;
+}
+
+.jur-dossier-llm-btn:hover:not(:disabled) {
+  background: var(--blue-light);
+  border-color: var(--blue-mid);
+  box-shadow: 0 0 0 2px rgba(var(--blue-dark-rgb, 30,64,175), 0.08);
+}
+
+.jur-dossier-llm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.jur-dossier-llm-btn--loading {
+  background: var(--blue-light);
+  border-color: var(--blue-mid);
+}
+
+.jur-dossier-llm-btn-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.jur-dossier-llm-btn-label strong {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.jur-dossier-llm-btn-label span {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.jur-dossier-llm-disclaimer {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ── Historique des analyses de dossier ────────────────────────────────────
+   Chaque analyse (synthèse/points clés/contradictoire) est rattachée au
+   dossier et conservée datée — repliable pour ne pas alourdir visuellement
+   le panneau dossier quand l'historique s'accumule. */
+.jur-dossier-history {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.jur-dossier-history-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.jur-dossier-history-toggle:hover {
+  color: var(--text-primary);
+}
+
+.jur-dossier-history-count {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.jur-dossier-history-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.jur-dossier-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+
+.jur-dossier-history-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jur-dossier-history-item-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.jur-dossier-history-item-info {
+  min-width: 0;
+}
+
+.jur-dossier-history-item-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.jur-dossier-history-item-date {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jur-dossier-history-item-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Timeline ────────────────────────────────────────────────────────────── */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Timeline — panneau partagé (chronologie document + dossier actif)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.jur-timeline {
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* ── En-tête avec onglets ─────────────────────────────────────────────────── */
+
+.jur-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.jur-timeline-tabs {
+  display: flex;
+  gap: 0;
+}
+
+.jur-timeline-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.jur-timeline-tab:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.jur-timeline-tab--active {
+  color: var(--accent, #2563eb);
+  border-bottom-color: var(--accent, #2563eb);
+}
+
+.jur-timeline-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.jur-timeline-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--border-medium);
+  color: var(--text-secondary);
+  border-radius: 8px;
+}
+
+/* ── État vide / chargement ───────────────────────────────────────────────── */
+
+.jur-timeline-loading {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+}
+
+.jur-timeline-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 14px 16px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Onglet "Ce document" — frise horizontale scrollable
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.jur-timeline-h-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 16px 20px 14px;
+  /* Scrollbar fine */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+.jur-timeline-h-scroll::-webkit-scrollbar { height: 4px; }
+.jur-timeline-h-scroll::-webkit-scrollbar-track { background: transparent; }
+.jur-timeline-h-scroll::-webkit-scrollbar-thumb { background: var(--border-medium); border-radius: 2px; }
+
+.jur-timeline-h-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  position: relative;
+  min-width: max-content;
+  padding-bottom: 4px;
+}
+
+/* Ligne de base horizontale */
+.jur-timeline-h-line {
+  position: absolute;
+  bottom: 20px;   /* centre des dots */
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border-medium);
+  z-index: 0;
+}
+
+/* ── Nœud individuel ──────────────────────────────────────────────────────── */
+
+.jur-timeline-h-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+  min-width: 64px;
+  cursor: default;
+  padding: 0 4px;
+}
+
+.jur-timeline-h-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border-medium);
+  background: var(--bg-primary);
+  margin-bottom: 6px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.jur-timeline-h-node:hover .jur-timeline-h-dot {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.jur-timeline-h-node--vigueur .jur-timeline-h-dot {
+  background: #22c55e;
+  border-color: #16a34a;
+  width: 16px;
+  height: 16px;
+}
+
+/* Étiquette sous le dot */
+.jur-timeline-h-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.jur-timeline-h-year {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.jur-timeline-h-node--vigueur .jur-timeline-h-year {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.jur-timeline-h-badge {
+  font-size: 9px;
+  color: #16a34a;
+  font-weight: 700;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Onglet "Dossier actif" — liste chronologique
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.jur-timeline-dossier {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.jur-timeline-dossier-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--border-light);
+  transition: background 0.1s;
+}
+
+.jur-timeline-dossier-item:last-child {
+  border-bottom: none;
+}
+
+.jur-timeline-dossier-item:hover {
+  background: var(--bg-hover);
+}
+
+.jur-timeline-dossier-num {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border-medium);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.jur-timeline-dossier-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.jur-timeline-dossier-titre {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.jur-timeline-dossier-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+/* ── Annotations ─────────────────────────────────────────────────────────── */
+
+.jur-annotations-panel {
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  padding: 12px 16px;
+  flex-shrink: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.jur-annotations-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.jur-annotations-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jur-ann-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.jur-ann-toggle input {
+  accent-color: var(--blue-dark);
+}
+
+.jur-annotations-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+  font-style: italic;
+}
+
+.jur-annotations-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.jur-annotation-item {
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-left: 3px solid transparent;
+}
+
+.jur-annotation-item--yellow { background: #fef9c3; border-left-color: #ca8a04; }
+.jur-annotation-item--green  { background: #dcfce7; border-left-color: #16a34a; }
+.jur-annotation-item--blue   { background: #dbeafe; border-left-color: #2563eb; }
+.jur-annotation-item--pink   { background: #fce7f3; border-left-color: #db2777; }
+
+.jur-annotation-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-style: italic;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.jur-annotation-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.jur-annotation-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+/* ── Popover d'annotation ────────────────────────────────────────────────── */
+
+.jur-ann-popover {
+  position: fixed;
+  z-index: 800;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 10px 12px;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jur-ann-popover-colors {
+  display: flex;
+  gap: 6px;
+}
+
+.jur-ann-color {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s;
+}
+
+.jur-ann-color--yellow { background: #fde047; }
+.jur-ann-color--green  { background: #4ade80; }
+.jur-ann-color--blue   { background: #60a5fa; }
+.jur-ann-color--pink   { background: #f472b6; }
+
+.jur-ann-color--selected,
+.jur-ann-color:hover {
+  transform: scale(1.2);
+  border-color: var(--text-primary);
+}
+
+.jur-ann-note-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.jur-ann-note-input:focus {
+  outline: none;
+  border-color: var(--blue-mid);
+}
+
+.jur-ann-popover-btns {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Surlignages dans le texte ───────────────────────────────────────────── */
+
+mark.jur-ann,
+.jur-viewer-content mark.jur-ann {
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: help;
+}
+
+mark.jur-ann--yellow { background: #fef08a; }
+mark.jur-ann--green  { background: #bbf7d0; }
+mark.jur-ann--blue   { background: #bfdbfe; }
+mark.jur-ann--pink   { background: #fbcfe8; }
+
+/* ── Citations automatiques ──────────────────────────────────────────────── */
+
+.jur-citation {
+  border-radius: 2px;
+  font-size: 0.95em;
+}
+
+.jur-citation--id {
+  color: var(--blue-dark);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--blue-light);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.jur-citation--id:hover {
+  text-decoration-style: solid;
+  background: var(--blue-mid);
+  color: #fff;
+}
+
+.jur-citation--ref {
+  background: #fef9c3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* Texte d'un article cité, inséré inline sous le lien de citation qui le
+   référence (cf. resolveInlineCitations dans html-helpers.ts). Bordure
+   pleine (≠ pointillée de .jur-article-path) et retrait pour bien marquer
+   qu'il s'agit d'un contenu IMPORTÉ depuis un autre document, distinct du
+   corps principal — sur le même principe que .jur-nota mais avec sa propre
+   teinte pour ne pas être confondu avec un simple nota de l'article
+   courant. */
+.jur-cited-article {
+  margin: 6px 0 14px 4px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--blue-mid);
+  background: var(--bg-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.93em;
+  color: var(--text-secondary);
+}
+
+.jur-cited-article p { margin: 0 0 8px; }
+.jur-cited-article p:last-child { margin-bottom: 0; }
+.jur-cited-article .jur-nota { margin-top: 8px; }
+
+/* ── Bouton lien danger ──────────────────────────────────────────────────── */
+
+.jur-btn-link--danger {
+  color: #dc2626 !important;
+}
+
+.jur-btn-link--danger:hover {
+  background: #fee2e2 !important;
+}
+
+.jur-btn-link--primary {
+  color: #2563eb !important;
+  font-weight: 600 !important;
+}
+
+.jur-btn-link--primary:hover {
+  background: #dbeafe !important;
+}
+
+/* ── Édition inline d'annotation ─────────────────────────────────────────── */
+
+.jur-annotation-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.jur-ann-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.jur-ann-edit-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.jur-ann-edit-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ── Tag XS ──────────────────────────────────────────────────────────────── */
+
+.jur-tag--xs {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+
+.jur-tag--legi {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.jur-tag--judi {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
+/* ── Viewer content — position relative pour popover ────────────────────── */
+
+.jur-viewer-content {
+  position: relative;
+}
+
+
+/* ── Viewer — rendu HTML natif ───────────────────────────────────────────── */
+
+.jur-viewer-content--html {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 40px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.jur-doc-body .jur-doc-h1 {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--blue-dark);
+  letter-spacing: -0.2px;
+}
+
+.jur-doc-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 10px 0 20px;
+  font-size: 12px;
+}
+
+.jur-doc-meta-row { display: contents; }
+
+.jur-meta-key {
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  grid-column: 1;
+}
+
+.jur-meta-val {
+  color: var(--text-primary);
+  grid-column: 2;
+}
+
+.jur-article-path {
+  border-left: 3px solid var(--blue-mid);
+  padding: 6px 12px;
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+  background: var(--bg-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.jur-doc-body .jur-section { margin: 24px 0 8px; }
+
+.jur-doc-body .jur-section h2,
+.jur-doc-body .jur-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--blue-dark);
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border-light);
+  margin: 0 0 12px;
+}
+
+.jur-doc-body .jur-section h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 16px 0 8px;
+}
+
+.jur-doc-body .jur-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 12px 0 6px;
+}
+
+.jur-section--decision-text p,
+.jur-section--decision-text {
+  font-size: 14px;
+  line-height: 1.85;
+  text-align: justify;
+  hyphens: auto;
+}
+
+.jur-article {
+  margin: 20px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.jur-article:target {
+  border-color: var(--blue-mid);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.jur-article-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--blue-dark);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jur-nota {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fffbeb;
+  border-left: 3px solid #d97706;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.jur-article-versions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+
+.jur-article-versions-label {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.jur-article-versions a.jur-article-version[data-cite-id] {
+  padding: 1px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  text-decoration: none;
+  background: none;
+  font-size: 11.5px;
+}
+
+.jur-article-versions a.jur-article-version[data-cite-id]:hover {
+  border-color: var(--blue-mid);
+  color: var(--blue-dark);
+  background: var(--blue-light, #dbeafe);
+  text-decoration: none;
+}
+
+.jur-article-versions .jur-article-version--current {
+  padding: 1px 8px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  background: var(--blue-dark);
+  border: 1px solid var(--blue-dark);
+  color: #fff;
+  font-weight: 600;
+}
+
+.jur-themes {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 16px;
+}
+
+.jur-doc-body p { margin: 0 0 12px; text-align: justify; hyphens: auto; }
+.jur-doc-body ul, .jur-doc-body ol { margin: 8px 0 12px 20px; }
+.jur-doc-body li { margin-bottom: 4px; }
+.jur-doc-body strong, .jur-doc-body b { font-weight: 700; }
+.jur-doc-body em, .jur-doc-body i { font-style: italic; }
+
+.jur-doc-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.jur-doc-body th, .jur-doc-body td {
+  border: 1px solid var(--border-light);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.jur-doc-body th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+.jur-doc-body a[data-cite-id],
+.jur-doc-body a.jur-citation--id {
+  color: var(--blue-dark);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  cursor: pointer;
+  font-size: 0.88em;
+  background: var(--blue-light, #dbeafe);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.jur-doc-body a[data-cite-id]:hover,
+.jur-doc-body a.jur-citation--id:hover {
+  background: var(--blue-mid, #3b82f6);
+  color: #fff;
+  text-decoration: none;
+}
+
+.jur-muted { color: var(--text-tertiary); font-style: italic; font-size: 13px; }
+
+.jur-tag-inline {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 99px;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.jur-tag-inline--muted {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+/* ── Graphe de citations JUDILIBRE (Procédure / rapprochements / annexes) ── */
+
+.jur-section--procedure {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px 4px;
+}
+
+.jur-procedure-chain {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.jur-procedure-arrow {
+  align-self: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.jur-procedure-step {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--bg-primary, #fff);
+}
+
+.jur-procedure-step--current {
+  background: var(--blue-light, #dbeafe);
+  border-color: var(--blue-mid);
+  padding: 4px 10px;
+}
+
+.jur-procedure-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 3px;
+}
+
+.jur-procedure-label--current {
+  color: var(--blue-dark);
+  margin-bottom: 0;
+}
+
+.jur-procedure-timeline {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 10px;
+}
+
+.jur-procedure-timeline-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+.jur-section--related .jur-related-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jur-related-item {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.jur-related-item-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+a.jur-related-link {
+  font-weight: 600;
+}
+
+.jur-related-link--plain {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Lien de secours (rapprochement/texte appliqué sans id/url résolu par
+   l'API — cf. extract-judilibre.ts) : lance une recherche interne plutôt
+   que d'ouvrir directement le document visé. Soulignement en tirets pour
+   se distinguer visuellement du soulignement pointillé des citations
+   directes (`.jur-citation--id`) et du texte inerte (`--plain`, sans
+   soulignement) — trois affordances, trois styles. */
+a.jur-search-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+a.jur-search-link:hover {
+  color: var(--blue-dark);
+  text-decoration-style: solid;
+  text-decoration-color: var(--blue-dark);
+}
+
+a.jur-search-link::after {
+  content: ' 🔍';
+  font-size: 0.8em;
+  opacity: 0.55;
+}
+
+.jur-related-item-meta {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.jur-related-item-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.jur-related-item-themes {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.jur-related-textlist {
+  margin: 0 0 12px 20px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.jur-related-textlist li {
+  margin-bottom: 6px;
+}
+
+/* Section « Historique » d'un article (A2, cf. renderArticleHistoriqueSection)
+   — texte HTML libre renvoyé par l'API (pas une liste de cartes comme les
+   autres sections `--related`), rendu avec le même habillage discret que
+   `.jur-nota` pour marquer visuellement qu'il s'agit d'un contenu annexe. */
+.jur-historique-body {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+
+.jur-historique-body p { margin: 0 0 8px; }
+.jur-historique-body p:last-child { margin-bottom: 0; }
+
+
+/* ── Badge inline dans un label bouton (pas en superposition absolue) ──────── */
+/* Utilisé dans .jur-btn-icon--label pour afficher le compte après le texte */
+.jur-badge--chip {
+  position: static;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 3px;
+  top: auto;
+  right: auto;
+}
+
+/* Quand jur-btn-icon--label est combiné avec jur-btn-icon, annuler la taille fixe */
+.jur-btn-icon.jur-btn-icon--label {
+  width: auto;
+  height: auto;
+  justify-content: flex-start;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ZONES JUDILIBRE — Découpage structuré du texte de décision
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Conteneur de zone : respiration verticale entre sections */
+.jur-zone {
+  border: none;
+  border-left: 3px solid transparent;
+  margin: 0 0 4px 0;
+  padding: 0;
+}
+
+/* Titre de zone */
+.jur-zone-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin: 28px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.jur-zone-label {
+  flex: 1;
+}
+
+/* Couleurs distinctives par zone */
+.jur-zone--introduction  { border-left-color: var(--blue-mid, #3b82f6); }
+.jur-zone--expose        { border-left-color: #8b5cf6; }
+.jur-zone--moyens        { border-left-color: #f59e0b; }
+.jur-zone--motivations   { border-left-color: #10b981; }
+.jur-zone--dispositif    { border-left-color: #ef4444; }
+.jur-zone--annexes       { border-left-color: #6b7280; }
+.jur-zone--preamble      { border-left-color: var(--border-light); }
+
+/* Correction : les <p> de texte brut */
+.jur-zone p,
+.jur-section--decision-text p {
+  margin: 0 0 0.9em 0;
+  line-height: 1.8;
+  text-align: justify;
+  hyphens: auto;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.jur-zone p:last-child,
+.jur-section--decision-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* Surlignage des termes de recherche (balises <em> de text_highlight) */
+.jur-section--decision-text em,
+.jur-zone em {
+  font-style: normal;
+  background: #fef08a;
+  color: #713f12;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* Padding uniforme pour les zones avec bordure gauche */
+.jur-zone {
+  padding-left: 14px;
+}
+
+.jur-zone--preamble {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* ── Contenu HTML des articles Légifrance (ConsultArticle.content) ─────────── */
+/* Le HTML retourné par l'API contient des <p>, <br>, <strong>, listes, etc. */
+.jur-article p {
+  margin: 0 0 0.75em;
+  line-height: 1.75;
+  text-align: justify;
+  hyphens: auto;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.jur-article p:last-child { margin-bottom: 0; }
+.jur-article ul, .jur-article ol { margin: 6px 0 10px 20px; }
+.jur-article li { margin-bottom: 4px; line-height: 1.65; font-size: 14px; }
+.jur-article strong, .jur-article b { font-weight: 700; }
+.jur-article em { font-style: italic; }
+.jur-article table {
+  border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px;
+}
+.jur-article th, .jur-article td {
+  border: 1px solid var(--border-light); padding: 5px 8px; text-align: left;
+}
+/* Liens de citation dans le contenu Légifrance */
+.jur-article a.jur-citation {
+  color: var(--blue-dark);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* Sections vides (article sans contenu = uniquement "Nota") */
+.jur-article:has(> h3 + aside.jur-nota) {
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+/* ── Bouton retour navigation ────────────────────────────────────────────────── */
+.jur-btn-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium, #d1d5db);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  margin-right: 6px;
+}
+.jur-btn-back:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+}
+
+/* ── Bulle de prévisualisation des liens de citation ────────────────────────── */
+.jur-link-preview {
+  position: fixed;
+  z-index: 900;
+  max-width: 420px;
+  min-width: 200px;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-medium, #d1d5db);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 10px 13px;
+  pointer-events: none; /* ne bloque pas les interactions */
+  animation: jur-preview-in 0.1s ease-out;
+}
+
+@keyframes jur-preview-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.jur-link-preview::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 16px;
+  width: 8px;
+  height: 8px;
+  background: var(--bg-primary, #fff);
+  border-left: 1px solid var(--border-medium, #d1d5db);
+  border-top: 1px solid var(--border-medium, #d1d5db);
+  transform: rotate(45deg);
+}
+
+.jur-link-preview-text {
+  display: block;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  font-family: var(--jur-serif, Georgia, serif);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.jur-link-preview-loading {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.jur-link-preview--error .jur-link-preview-text {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-family: var(--font-body);
+}
+
+/* ── Dossier items cliquables ───────────────────────────────────────────────── */
+.jur-dossier-item--clickable {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.jur-dossier-item--clickable:hover {
+  background: var(--bg-hover);
+}
+.jur-dossier-item--active {
+  background: var(--blue-light, #dbeafe);
+  border-color: var(--blue-mid, #3b82f6);
+}
+.jur-dossier-item--active .jur-dossier-item-titre {
+  color: var(--blue-dark);
+  font-weight: 600;
+}
+
+/* ── Numérotation des annotations ───────────────────────────────────────────── */
+
+/* Badge numéroté dans le texte surligné */
+mark.jur-ann[data-ann-num]::after {
+  content: attr(data-ann-num);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  font-style: normal;
+  line-height: 1;
+  border-radius: 7px;
+  padding: 0 3px;
+  margin-left: 2px;
+  vertical-align: super;
+  position: relative;
+  top: -1px;
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+}
+
+mark.jur-ann--yellow[data-ann-num]::after { background: rgba(120, 80, 0, 0.22); color: #78500055; color: #7c5e00; }
+mark.jur-ann--green[data-ann-num]::after  { background: rgba(20, 100, 40, 0.22); color: #145a28; }
+mark.jur-ann--blue[data-ann-num]::after   { background: rgba(30, 80, 180, 0.22); color: #1e50b4; }
+mark.jur-ann--pink[data-ann-num]::after   { background: rgba(160, 30, 80, 0.22); color: #a01e50; }
+
+/* En-tête dans le panneau : badge + texte côte à côte */
+.jur-annotation-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+/* Badge numéroté dans le panneau */
+.jur-ann-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 9px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.jur-ann-badge--yellow { background: #fef9c3; color: #7c5e00; border: 1px solid #fde047; }
+.jur-ann-badge--green  { background: #dcfce7; color: #145a28; border: 1px solid #86efac; }
+.jur-ann-badge--blue   { background: #dbeafe; color: #1e50b4; border: 1px solid #93c5fd; }
+.jur-ann-badge--pink   { background: #fce7f3; color: #a01e50; border: 1px solid #f9a8d4; }
+
+/* ── Annotations cliquables → scroll vers surlignage ───────────────────────── */
+.jur-annotation-item--clickable {
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.jur-annotation-item--clickable:hover {
+  filter: brightness(0.95);
+}
+
+/* Animation flash sur le <mark> cible */
+@keyframes jur-ann-flash {
+  0%   { outline: 3px solid transparent; outline-offset: 2px; }
+  20%  { outline: 3px solid currentColor; outline-offset: 3px; }
+  80%  { outline: 3px solid currentColor; outline-offset: 3px; }
+  100% { outline: 3px solid transparent; outline-offset: 2px; }
+}
+mark.jur-ann--flash {
+  animation: jur-ann-flash 1.4s ease-out forwards;
+}
+
+/* ── Multi-dossiers ─────────────────────────────────────────────────────────── */
+.jur-dossier-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.jur-dossier-folder-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+.jur-dossier-folder-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+.jur-dossier-folder-item--active {
+  background: var(--blue-light, #dbeafe);
+  border-color: var(--blue-mid, #3b82f6);
+}
+
+.jur-dossier-folder-icon { font-size: 16px; flex-shrink: 0; }
+
+.jur-dossier-folder-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.jur-dossier-folder-nom {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jur-dossier-folder-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.jur-dossier-folder-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.jur-dossier-folder-item:hover .jur-dossier-folder-actions { opacity: 1; }
+
+.jur-btn-icon--xs {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  padding: 0;
+}
+
+.jur-dossier-rename-input {
+  font-size: 13px;
+  font-family: var(--font-body);
+  border: 1px solid var(--blue-mid);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  width: 100%;
+  outline: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ── Bouton dossier enrichi ─────────────────────────────────────────────────── */
+.jur-dossier-btn-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.jur-dossier-main-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 160px;
+}
+.jur-dossier-main-btn:hover,
+.jur-dossier-main-btn--active {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+.jur-dossier-main-btn--active {
+  color: var(--blue-dark);
+  background: var(--blue-light, #dbeafe);
+  border-color: var(--blue-mid, #3b82f6);
+}
+
+.jur-dossier-main-btn-icon { font-size: 14px; flex-shrink: 0; }
+
+.jur-dossier-main-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.jur-dossier-main-btn-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+  line-height: 1.3;
+}
+.jur-dossier-main-btn--active .jur-dossier-main-btn-label { color: var(--blue-dark); }
+
+.jur-dossier-main-btn-count {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.jur-dossier-main-btn-sub {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  line-height: 1.2;
+}
+
+/* Menu de changement rapide de dossier */
+.jur-dossier-switcher {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 600;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  min-width: 180px;
+  max-width: 260px;
+  padding: 4px;
+  flex-direction: column;
+  gap: 1px;
+}
+.jur-dossier-btn-wrap:hover .jur-dossier-switcher { display: flex; }
+
+.jur-dossier-switcher-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: left;
+  transition: background 0.1s;
+  width: 100%;
+}
+.jur-dossier-switcher-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.jur-dossier-switcher-item--active {
+  background: var(--blue-light, #dbeafe);
+  color: var(--blue-dark);
+  font-weight: 600;
+}
+.jur-dossier-switcher-item--active::before { content: '✓ '; }
+.jur-dossier-switcher-item--new {
+  color: var(--blue-dark);
+  border-top: 1px solid var(--border-light);
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+.jur-dossier-switcher-nom {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jur-dossier-switcher-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  background: var(--bg-tertiary, #f3f4f6);
+  color: var(--text-tertiary);
+  border-radius: 8px;
+  padding: 0 5px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* ── Renommage dans le header du panneau détail ─────────────────────────────── */
+.jur-dossier-title--editable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.jur-dossier-rename-btn {
+  opacity: 0;
+  transition: opacity 0.12s;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.jur-dossier-header:hover .jur-dossier-rename-btn { opacity: 1; }
+
+.jur-dossier-rename-input--header {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 6px;
+  height: 26px;
+}
+
+/* ── Message d'indisponibilité de contenu ───────────────────────────────────── */
+.jur-muted--warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 24px 0;
+  padding: 14px 16px;
+  background: var(--bg-secondary, #f9fafb);
+  border: 1px solid var(--border-medium, #d1d5db);
+  border-left: 4px solid #f59e0b;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ── Recolorisation des annotations depuis le panneau ───────────────────────── */
+.jur-ann-recolor {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Les .jur-ann-color existent déjà pour le popover de création —
+   on s'assure qu'ils sont aussi bien affichés dans le panneau */
+.jur-annotation-meta .jur-ann-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+.jur-annotation-meta .jur-ann-color:hover { transform: scale(1.25); }
+.jur-annotation-meta .jur-ann-color--selected {
+  border-color: var(--text-primary);
+  transform: scale(1.15);
+}
+
+/* ============================================================================
+   Carte de résultat enrichie — badge solution, juridiction, thèmes, highlights
+   ============================================================================ */
+
+/* ── Badge solution coloré sémantiquement (remplace .jur-tag--blue générique
+   pour les solutions judiciaires Judilibre) ──────────────────────────────── */
+
+.jur-result-solution {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.jur-result-solution--cassation {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+.jur-result-solution--rejet {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-color: var(--border-medium);
+}
+
+.jur-result-solution--annulation {
+  background: #fff7ed;
+  color: #9a3412;
+  border-color: #fdba74;
+}
+
+.jur-result-solution--irrecevabilite {
+  background: #f5f3ff;
+  color: #5b21b6;
+  border-color: #c4b5fd;
+}
+
+.jur-result-solution--qpc {
+  background: var(--blue-light);
+  color: var(--blue-dark);
+  border-color: var(--blue-mid);
+}
+
+.jur-result-solution--default {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+
+/* ── Ligne juridiction / chambre / formation (Judilibre) ─────────────────── */
+
+.jur-result-court {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Pastilles thèmes cliquables ──────────────────────────────────────────── */
+
+.jur-result-themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.jur-result-theme-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--blue-light) 70%, transparent);
+  color: var(--blue-dark);
+  border: 1px solid color-mix(in srgb, var(--blue-mid) 25%, transparent);
+  cursor: pointer;
+  font-family: var(--font-body);
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.jur-result-theme-chip:hover {
+  background: var(--blue-light);
+  border-color: var(--blue-mid);
+}
+
+.jur-result-theme-more {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  padding: 2px 4px;
+  align-self: center;
+}
+
+/* ── Badge publication (B / R / L / C) — Judilibre ────────────────────────── */
+
+.jur-tag--pub {
+  background: color-mix(in srgb, var(--amber-light) 60%, transparent);
+  color: var(--amber-dark);
+  border-color: color-mix(in srgb, var(--amber-dark) 20%, transparent);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ── Badge « Travaux préparatoires » (A4 — dossier législatif) ────────────── */
+
+.jur-tag--dossier-legislatif {
+  cursor: pointer;
+  font-family: var(--font-body);
+  background: color-mix(in srgb, var(--blue-light) 70%, transparent);
+  color: var(--blue-dark);
+  border-color: color-mix(in srgb, var(--blue-mid) 25%, transparent);
+}
+
+.jur-tag--dossier-legislatif:hover {
+  background: var(--blue-light);
+  border-color: var(--blue-mid);
+}
+
+/* ── Barre de score de pertinence ─────────────────────────────────────────── */
+
+.jur-result-score {
+  display: inline-flex;
+  align-items: center;
+  width: 40px;
+  height: 3px;
+  background: var(--border-light);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.jur-result-score-bar {
+  display: block;
+  height: 100%;
+  background: var(--blue-mid);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+/* ── Surcharges ciblées ───────────────────────────────────────────────────── */
+
+/* Différencie visuellement Légifrance (bleu, par défaut transparent →
+   pas de changement) de Judilibre (ambre) via une bordure gauche colorée. */
+.jur-result-item[data-source="judilibre"] {
+  border-left-color: var(--amber-dark);
+}
+
+/* L'état actif reprend toujours le bleu, quelle que soit la source. */
+.jur-result-item--active[data-source="judilibre"] {
+  border-left-color: var(--blue-mid);
+}
+
+/* La carte contient maintenant jusqu'à 6 lignes : un peu plus d'air en bas. */
+.jur-result-item-main {
+  padding-bottom: 12px;
+}
+
+/* Le kicker doit pouvoir passer à la ligne en colonne étroite (372px) :
+   label de juridiction + badges de publication + barre de score peuvent
+   dépasser la largeur disponible. flex-wrap: wrap évite que ce débordement
+   horizontal ne déclenche un effondrement visuel du reste de la carte. */
+.jur-result-kicker {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+/* Le libellé de juridiction peut être long ("Cour de cassation, chambre
+   sociale") — on le laisse rétrécir plutôt que forcer la largeur du kicker. */
+.jur-result-kicker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ── Squelettes de chargement enrichis (kicker / titre / meta / preview) ──── */
+
+.jur-result-skeleton {
+  height: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  animation: none;
+}
+
+.jur-result-skeleton__kicker,
+.jur-result-skeleton__title,
+.jur-result-skeleton__meta,
+.jur-result-skeleton__preview {
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 25%,
+    var(--border-light) 50%,
+    var(--bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: jur-shimmer 1.4s infinite;
+}
+
+.jur-result-skeleton__kicker { height: 9px; width: 30%; }
+.jur-result-skeleton__title  { height: 14px; width: 90%; }
+.jur-result-skeleton__meta   { height: 9px; width: 55%; }
+.jur-result-skeleton__preview { height: 9px; width: 80%; opacity: 0.65; }
+
+/* ── Highlight des extraits Légifrance balisés en <mark> ─────────────────── */
+/* Note : .jur-result-preview em / mark gère déjà Judilibre (text_highlight).
+   Cette règle couvre le cas où le HTML d'extrait Légifrance utilise <mark>
+   directement (déjà pris en charge ci-dessus par le sélecteur partagé) —
+   aucune règle supplémentaire nécessaire ici. */
+
+/* ============================================================================
+   Table des matières flottante (scroll-spy) — signature Doctrine
+   ============================================================================ */
+
+/* Conteneur ligne qui porte désormais le scroll du corps + la TOC latérale.
+   .jur-viewer-content garde son propre overflow-y; ce wrapper ne fait que
+   les positionner côte à côte et limiter la hauteur disponible. */
+.jur-viewer-body-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Le scroll appartient toujours au corps de lecture, pas à la ligne parente. */
+.jur-viewer-body-row > .jur-viewer-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.jur-toc {
+  flex-shrink: 0;
+  width: 220px;
+  border-left: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  overflow-y: auto;
+  padding: 14px 10px;
+  transition: width 0.15s ease;
+}
+
+.jur-toc--collapsed {
+  width: 40px;
+  padding: 14px 4px;
+  overflow: visible;
+}
+
+.jur-toc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 4px 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 8px;
+}
+
+.jur-toc--collapsed .jur-toc-toggle {
+  justify-content: center;
+  border-bottom: none;
+  margin-bottom: 0;
+  padding: 4px 0;
+}
+
+.jur-toc-toggle:hover {
+  color: var(--text-primary);
+}
+
+.jur-toc-toggle-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jur-toc-toggle-chevron {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.jur-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.jur-toc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 5px 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.jur-toc-item--level-0 {
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: none;
+}
+
+.jur-toc-item--level-1 {
+  padding-left: 14px;
+  font-size: 11.5px;
+}
+
+.jur-toc-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.jur-toc-item--active {
+  border-left-color: var(--blue-mid);
+  background: var(--blue-light);
+  color: var(--blue-dark);
+  font-weight: 600;
+}
+
+/* ── Plan interactif arborescent (sommaire façon Dalloz) ──────────────────
+   Chaque ligne = un chevron (optionnel, seulement si des enfants existent)
+   + le libellé cliquable. L'indentation réelle vient du padding-left inline
+   posé sur `.jur-toc-row` (profondeur variable, cf. TocTreeList), pas d'une
+   classe par niveau — la hiérarchie peut aller au-delà de 2 niveaux
+   (Livre > Titre > Chapitre > Section > Article) contrairement à l'ancienne
+   liste plate. */
+.jur-toc-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.jur-toc-caret {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.jur-toc-caret:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.jur-toc-caret--spacer {
+  cursor: default;
+}
+
+.jur-toc-row .jur-toc-item {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Article : feuille de l'arbre, un cran plus discret que les sections
+   (Livre/Titre/Chapitre/Section) qui structurent le plan. */
+.jur-toc-item--article {
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.jur-toc-item--article:hover,
+.jur-toc-item--article.jur-toc-item--active {
+  font-style: normal;
+}
+
+/* Sur petits écrans, la TOC latérale prendrait trop de place : on la masque
+   et on garde uniquement le bouton replié comme déclencheur discret. */
+@media (max-width: 1200px) {
+  .jur-toc {
+    width: 40px;
+    padding: 14px 4px;
+    border-left: 1px solid var(--border-light);
+  }
+  .jur-toc-toggle {
+    justify-content: center;
+    border-bottom: none;
+    margin-bottom: 0;
+    padding: 4px 0;
+  }
+  .jur-toc-list,
+  .jur-toc-toggle-label,
+  .jur-toc-toggle-chevron {
+    display: none;
+  }
+}
+
+/* ============================================================================
+   Typographie du viewer — lecture juridique façon Dalloz
+   ============================================================================
+   Objectifs : empattements pour le corps de texte (lisibilité longue durée),
+   numéros d'articles en marge sur grand écran, séparation visuelle nette des
+   zones de décision, hiérarchie de titres resserrée et cohérente.
+   ============================================================================ */
+
+/* ── Police serif sur le corps de lecture ─────────────────────────────────── */
+/* Le texte normatif (articles de loi, motivations de décision) gagne en
+   lisibilité avec une police à empattements, comme chez Dalloz/Lexis. Les
+   éléments d'interface (titres de zone, tags, méta) restent en sans-serif
+   pour garder un contraste fonctionnel clair entre "texte" et "navigation". */
+
+.jur-viewer-content--html {
+  font-family: var(--jur-serif);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* Les paragraphes de texte normatif héritent explicitement de la serif —
+   au cas où un ancêtre sans-serif (ex. liens injectés) interférerait. */
+.jur-doc-body p,
+.jur-zone p,
+.jur-section--decision-text p,
+.jur-article p {
+  font-family: var(--jur-serif);
+}
+
+/* Le titre principal du document reste en sans-serif : c'est un élément
+   d'interface (fil d'Ariane visuel), pas du texte de loi à lire en continu. */
+.jur-doc-body .jur-doc-h1 {
+  font-family: var(--font-body);
+  font-size: 19px;
+}
+
+/* Les libellés de section/zone restent en sans-serif — ce sont des repères
+   de navigation, pas du contenu à lire. */
+.jur-doc-body .jur-section h2,
+.jur-doc-body .jur-section-title,
+.jur-zone-title,
+.jur-article-num,
+.jur-doc-meta,
+.jur-tag-inline {
+  font-family: var(--font-body);
+}
+
+/* ── Numéro d'article en marge gauche (≥ 1100px de viewer) ───────────────── */
+/* Sur un viewer suffisamment large, le numéro d'article sort du flux de
+   lecture et se positionne en marge — signature Dalloz. En dessous de ce
+   seuil, l'espace manque : le numéro reste inline dans le <h3>. */
+
+@media (min-width: 1100px) {
+  /* Seuls les articles (qui portent un numéro) reçoivent un retrait
+     supplémentaire pour accueillir le numéro en marge — le reste du
+     document (titre, méta, zones de décision) garde son alignement normal.
+     Cette approche évite les marges négatives en cascade quand un article
+     est imbriqué dans une section (cas des codes, via renderSections). */
+  .jur-article[data-num]:not([data-num=""]) {
+    position: relative;
+    padding-left: 64px;
+  }
+
+  .jur-article[data-num]:not([data-num=""])::before {
+    content: attr(data-num);
+    position: absolute;
+    top: 16px;
+    left: 0;
+    width: 52px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+    line-height: 1.3;
+  }
+
+  /* Le numéro étant déjà affiché en marge, le titre inline reste discret
+     (libellé de l'article seul, sans redondance visuelle forte). */
+  .jur-article[data-num]:not([data-num=""]) .jur-article-num {
+    font-size: 12px;
+  }
+}
+
+/* ── Séparation visuelle des zones de décision ────────────────────────────── */
+/* Les bordures colorées par zone existent déjà (.jur-zone--introduction
+   etc.) ; on les renforce avec un fond très légèrement teinté assorti, pour
+   que la zone se distingue même en lecture rapide / survol. */
+
+.jur-zone--introduction { background: color-mix(in srgb, var(--blue-mid, #3b82f6) 3%, transparent); }
+.jur-zone--expose       { background: color-mix(in srgb, #8b5cf6 3%, transparent); }
+.jur-zone--moyens       { background: color-mix(in srgb, #f59e0b 3%, transparent); }
+.jur-zone--motivations  { background: color-mix(in srgb, #10b981 4%, transparent); }
+.jur-zone--dispositif   { background: color-mix(in srgb, #ef4444 4%, transparent); }
+.jur-zone--annexes      { background: color-mix(in srgb, #6b7280 3%, transparent); }
+
+/* Le fond teinté a besoin d'un peu d'air pour ne pas coller au texte */
+.jur-zone:not(.jur-zone--preamble) {
+  padding: 10px 14px 14px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* La zone Dispositif (le sens de la décision) mérite un repère visuel plus
+   appuyé : c'est l'information la plus recherchée dans une décision. */
+.jur-zone--dispositif .jur-zone-title {
+  color: #b91c1c;
+}
+
+.jur-zone--dispositif {
+  border-left-width: 4px;
+}
+
+/* ── Hiérarchie de titres resserrée ───────────────────────────────────────── */
+
+.jur-doc-body .jur-section h3 {
+  font-family: var(--font-body);
+  letter-spacing: 0.01em;
+}
+
+/* ── Confort de lecture des longs paragraphes normatifs ───────────────────── */
+/* Largeur de ligne plafonnée pour rester dans une zone de lecture confortable
+   (45-75 caractères par ligne) même quand le viewer est très large. */
+
+.jur-doc-body,
+.jur-zone,
+.jur-section--decision-text,
+.jur-article {
+  max-width: 760px;
+}
+
+/* Les éléments structurants (méta, séparateurs, titre h1) peuvent occuper
+   toute la largeur disponible — seul le texte de lecture est plafonné. */
+.jur-doc-meta,
+.jur-article-path {
+  max-width: 760px;
+}
+
+/* ============================================================================
+   Panneau Citations croisées (concordance / liens relatifs)
+   ============================================================================ */
+
+.jur-cross-citations {
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.jur-cross-citations-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-light);
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+}
+
+.jur-cross-citations-loading {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+}
+
+.jur-cross-citations-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 14px 16px;
+}
+
+.jur-cross-citations-group {
+  padding: 8px 12px 4px;
+}
+
+.jur-cross-citations-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.jur-cross-citations-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.jur-cross-citation-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.jur-cross-citation-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.jur-cross-citation-titre {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================================================
+   Suggestions de requête reformulée (LLM synchrone)
+   ============================================================================ */
+
+.jur-refine-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 9px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--blue-light, #eff6ff) 70%, transparent);
+  color: var(--blue-dark, #1e40af);
+  border: 1px solid color-mix(in srgb, var(--blue-mid, #3b82f6) 25%, transparent);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.jur-refine-btn:hover:not(:disabled) {
+  background: var(--blue-light, #eff6ff);
+  border-color: var(--blue-mid, #3b82f6);
+}
+
+.jur-refine-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.jur-suggestions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: color-mix(in srgb, var(--blue-light, #eff6ff) 30%, transparent);
+  flex-shrink: 0;
+}
+
+.jur-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jur-suggestion-chip:hover {
+  background: var(--blue-light, #eff6ff);
+  border-color: var(--blue-mid, #3b82f6);
+}
+
+.jur-suggestions-error {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+.jur-suggestions-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.jur-suggestions-dismiss:hover {
+  color: var(--text-primary);
+}
+
+/* ============================================================================
+   Menu d'export (Markdown / Word)
+   ============================================================================ */
+
+.jur-export-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.jur-export-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 170px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.jur-export-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+
+.jur-export-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.jur-export-menu-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
