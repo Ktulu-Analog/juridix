@@ -43,6 +43,7 @@ use serde_json::{json, Value};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 
+use crate::juridique::{juridique_router, HasJuridiqueState, JuridiqueState};
 use crate::{
     db::Database,
     extract::extract_text,
@@ -54,7 +55,6 @@ use crate::{
     },
     spaces::{load_spaces, save_spaces},
 };
-use crate::juridique::{juridique_router, HasJuridiqueState, JuridiqueState};
 
 // ── System prompt constants ───────────────────────────────────────────────────
 
@@ -301,8 +301,12 @@ impl HasJuridiqueState for AppState {
 pub fn build_router(db: Database, prompts_path: PathBuf) -> (Router, Arc<AppState>) {
     let credentials = Arc::new(RwLock::new(Credentials::default()));
     let juridique = JuridiqueState::new(
-        std::env::var("PISTE_CLIENT_ID").ok().filter(|s| !s.trim().is_empty()),
-        std::env::var("PISTE_CLIENT_SECRET").ok().filter(|s| !s.trim().is_empty()),
+        std::env::var("PISTE_CLIENT_ID")
+            .ok()
+            .filter(|s| !s.trim().is_empty()),
+        std::env::var("PISTE_CLIENT_SECRET")
+            .ok()
+            .filter(|s| !s.trim().is_empty()),
     );
     let state = Arc::new(AppState {
         db,
@@ -1525,7 +1529,10 @@ async fn get_user_me(
                 return Json(json!(null)).into_response();
             }
             let body: Value = resp.json().await.unwrap_or(json!({}));
-            (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), Json(body))
+            (
+                StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK),
+                Json(body),
+            )
                 .into_response()
         }
         Err(_) => Json(json!(null)).into_response(),
@@ -1542,7 +1549,7 @@ async fn list_models(
     let creds = state.credentials.read().await.clone();
     let bearer = resolve_bearer(&headers, &creds.bearer);
 
-    // Bearer toujours vide → liste vide immédiate, le frontend utilisera extra_models
+    // Bearer toujours vide → liste vide immédiate, le frontend basculera sur le modèle par défaut
     if bearer.trim().is_empty() {
         return Json(json!({ "data": [] })).into_response();
     }
@@ -1563,19 +1570,21 @@ async fn list_models(
     {
         Ok(resp) => {
             let status = resp.status();
-            // 401/403 → liste vide proprement (le frontend basculera sur extra_models)
+            // 401/403 → liste vide proprement (le frontend basculera sur le modèle par défaut)
             if status == 401 || status == 403 {
                 return Json(json!({ "data": [], "_auth_error": true })).into_response();
             }
             let body: Value = resp.json().await.unwrap_or(json!({"data": []}));
-            (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), Json(body))
+            (
+                StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK),
+                Json(body),
+            )
                 .into_response()
         }
         // Réseau KO (endpoint inaccessible, timeout…) → liste vide silencieuse
         Err(_) => Json(json!({ "data": [] })).into_response(),
     }
 }
-
 
 // ── Extract ───────────────────────────────────────────────────────────────────
 

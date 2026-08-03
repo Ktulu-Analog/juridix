@@ -55,10 +55,7 @@ impl Database {
         // avant ce champ. SQLite ne supporte pas `ADD COLUMN IF NOT EXISTS`,
         // donc on tente l'ALTER et on ignore l'erreur "duplicate column".
         conn.call(|db| {
-            match db.execute(
-                "ALTER TABLE conversations ADD COLUMN dossier_id TEXT",
-                [],
-            ) {
+            match db.execute("ALTER TABLE conversations ADD COLUMN dossier_id TEXT", []) {
                 Ok(_) => {}
                 Err(rusqlite::Error::SqliteFailure(_, Some(msg)))
                     if msg.contains("duplicate column") => {}

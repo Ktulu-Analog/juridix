@@ -33,7 +33,7 @@
 //      get_jorf_part, get_dossier_legislatif, get_code_consult,
 //      get_article_with_id_and_num, ping.
 //
-//   9. Règles anti-500 : pageSize ≤ 100, pageNumber ≥ 1, NOM_CODE → 
+//   9. Règles anti-500 : pageSize ≤ 100, pageNumber ≥ 1, NOM_CODE →
 //      TEXT_NOM_CODE sur CODE_DATE/CODE_ETAT, fond ALL sans filtres.
 // ============================================================================
 
@@ -46,8 +46,7 @@ use super::client::PisteClient;
 
 // ── Base URL ──────────────────────────────────────────────────────────────────
 
-const LEGIFRANCE_BASE: &str =
-    "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
+const LEGIFRANCE_BASE: &str = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
 
 // ── Types publics ─────────────────────────────────────────────────────────────
 
@@ -77,23 +76,23 @@ pub enum SearchFond {
 impl SearchFond {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Jorf           => "JORF",
-            Self::Cnil           => "CNIL",
-            Self::Cetat          => "CETAT",
-            Self::Juri           => "JURI",
-            Self::Jufi           => "JUFI",
-            Self::Constit        => "CONSTIT",
-            Self::Kali           => "KALI",
-            Self::CodeDate       => "CODE_DATE",
-            Self::CodeEtat       => "CODE_ETAT",
-            Self::LodaDate       => "LODA_DATE",
-            Self::LodaEtat       => "LODA_ETAT",
-            Self::All            => "ALL",
-            Self::Circ           => "CIRC",
-            Self::Acco           => "ACCO",
+            Self::Jorf => "JORF",
+            Self::Cnil => "CNIL",
+            Self::Cetat => "CETAT",
+            Self::Juri => "JURI",
+            Self::Jufi => "JUFI",
+            Self::Constit => "CONSTIT",
+            Self::Kali => "KALI",
+            Self::CodeDate => "CODE_DATE",
+            Self::CodeEtat => "CODE_ETAT",
+            Self::LodaDate => "LODA_DATE",
+            Self::LodaEtat => "LODA_ETAT",
+            Self::All => "ALL",
+            Self::Circ => "CIRC",
+            Self::Acco => "ACCO",
             // Ces fonds n'ont pas d'endpoint /search — redirigés vers ALL
-            Self::Bocc           => "ALL",
-            Self::DebatParl      => "ALL",
+            Self::Bocc => "ALL",
+            Self::DebatParl => "ALL",
             Self::QuestionEcrite => "ALL",
         }
     }
@@ -121,11 +120,9 @@ impl SearchFond {
                 "PUBLICATION_DATE_DESC",
                 "PUBLICATION_DATE_ASC",
             ],
-            Self::Juri | Self::Jufi | Self::Cetat | Self::Constit => &[
-                "PERTINENCE",
-                "DATE_DESC",
-                "DATE_ASC",
-            ],
+            Self::Juri | Self::Jufi | Self::Cetat | Self::Constit => {
+                &["PERTINENCE", "DATE_DESC", "DATE_ASC"]
+            }
             Self::Circ => &[
                 "PERTINENCE",
                 "SIGNATURE_DATE_DESC",
@@ -143,12 +140,16 @@ impl SearchFond {
             Self::Cnil => &["PERTINENCE", "DATE_DECISION_DESC", "DATE_DECISION_ASC"],
             Self::Bocc => &["BOCC_SORT_DESC", "BOCC_SORT_ASC"],
             Self::DebatParl => &[
-                "DEBAT_PARLEMENTAIRE_DESC", "DEBAT_PARLEMENTAIRE_ASC",
-                "ID_ASC", "ID_DESC",
+                "DEBAT_PARLEMENTAIRE_DESC",
+                "DEBAT_PARLEMENTAIRE_ASC",
+                "ID_ASC",
+                "ID_DESC",
             ],
             Self::QuestionEcrite => &[
-                "QUESTION_ECRITE_PARLEMENTAIRE_DESC", "QUESTION_ECRITE_PARLEMENTAIRE_ASC",
-                "ID_ASC", "ID_DESC",
+                "QUESTION_ECRITE_PARLEMENTAIRE_DESC",
+                "QUESTION_ECRITE_PARLEMENTAIRE_ASC",
+                "ID_ASC",
+                "ID_DESC",
             ],
             _ => &["PERTINENCE"],
         }
@@ -364,11 +365,7 @@ impl SearchParams {
         let page_size = self.page_size.clamp(1, 100);
 
         // ── Tri ───────────────────────────────────────────────────────────────
-        let sort = self
-            .sort
-            .as_deref()
-            .unwrap_or("PERTINENCE")
-            .to_uppercase();
+        let sort = self.sort.as_deref().unwrap_or("PERTINENCE").to_uppercase();
 
         let valid_sorts = self.fond.valid_sorts();
         let sort = if valid_sorts.contains(&sort.as_str()) {
@@ -663,7 +660,10 @@ pub async fn get_loda_part(
         "textId": text_cid,
         "date": date_str,
     });
-    debug!("[Légifrance] legiPart textId={} date={}", text_cid, date_str);
+    debug!(
+        "[Légifrance] legiPart textId={} date={}",
+        text_cid, date_str
+    );
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -870,6 +870,7 @@ pub async fn get_dossier_legislatif(client: &PisteClient, id: &str) -> Result<Va
 /// `legal_status` : ex ["VIGUEUR", "ABROGE"].
 /// `sort` : "SIGNATURE_DATE_DESC" | "SIGNATURE_DATE_ASC" |
 ///          "PUBLICATION_DATE_DESC" | "PUBLICATION_DATE_ASC" | "PERTINENCE".
+#[allow(clippy::too_many_arguments)]
 pub async fn list_loda(
     client: &PisteClient,
     page_number: u32,
@@ -909,7 +910,10 @@ pub async fn list_loda(
         body["signatureDate"] = sig_date;
     }
 
-    debug!("[Légifrance] list/loda page={} size={}", page_number, page_size);
+    debug!(
+        "[Légifrance] list/loda page={} size={}",
+        page_number, page_size
+    );
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -978,7 +982,10 @@ pub async fn suggest(
         "searchText": query,
         "supplies": supplies_val,
     });
-    debug!("[Légifrance] suggest query={:?} supplies={:?}", query, &body["supplies"]);
+    debug!(
+        "[Légifrance] suggest query={:?} supplies={:?}",
+        query, &body["supplies"]
+    );
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1124,7 +1131,11 @@ pub async fn get_cnil_by_ancien_id(client: &PisteClient, ancien_id: &str) -> Res
 
 /// Récupère un texte JORF complet par son CID (différent de jorfPart).
 /// Body : { "textCid": "JORFTEXT..." }
-pub async fn get_jorf(client: &PisteClient, text_cid: &str, searched_string: Option<&str>) -> Result<Value> {
+pub async fn get_jorf(
+    client: &PisteClient,
+    text_cid: &str,
+    searched_string: Option<&str>,
+) -> Result<Value> {
     let url = format!("{}/consult/jorf", LEGIFRANCE_BASE);
     let mut body = json!({ "textCid": text_cid });
     if let Some(s) = searched_string {
@@ -1155,6 +1166,7 @@ pub async fn get_kali_section(client: &PisteClient, id: &str) -> Result<Value> {
 // ── Consult — Jurisprudence plan de classement ────────────────────────────────
 
 /// Récupère le plan de classement de la jurisprudence.
+#[allow(clippy::too_many_arguments)]
 pub async fn get_juri_plan_classement(
     client: &PisteClient,
     id: Option<&str>,
@@ -1170,11 +1182,21 @@ pub async fn get_juri_plan_classement(
         "searchSuggest": search_suggest,
         "searchByNiveau": search_by_niveau,
     });
-    if let Some(v) = id { body["id"] = json!(v); }
-    if let Some(v) = fond { body["fond"] = json!(v); }
-    if let Some(v) = libelle { body["libelle"] = json!(v); }
-    if let Some(v) = niveau { body["niveau"] = json!(v); }
-    if let Some(v) = page { body["page"] = json!(v); }
+    if let Some(v) = id {
+        body["id"] = json!(v);
+    }
+    if let Some(v) = fond {
+        body["fond"] = json!(v);
+    }
+    if let Some(v) = libelle {
+        body["libelle"] = json!(v);
+    }
+    if let Some(v) = niveau {
+        body["niveau"] = json!(v);
+    }
+    if let Some(v) = page {
+        body["page"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1192,7 +1214,11 @@ pub async fn get_last_n_jo(client: &PisteClient, nb_element: u32) -> Result<Valu
 
 /// Tables annuelles Légifrance sur une période.
 /// Body : { "endYear": N, "startYear": N }
-pub async fn get_tables(client: &PisteClient, end_year: i32, start_year: Option<i32>) -> Result<Value> {
+pub async fn get_tables(
+    client: &PisteClient,
+    end_year: i32,
+    start_year: Option<i32>,
+) -> Result<Value> {
     let url = format!("{}/consult/getTables", LEGIFRANCE_BASE);
     let mut body = json!({ "endYear": end_year });
     if let Some(y) = start_year {
@@ -1284,9 +1310,15 @@ pub async fn list_bocc(
         "pageSize": page_size.clamp(1, 100),
         "searchForGlobalBocc": true,
     });
-    if let Some(v) = interval_publication { body["intervalPublication"] = json!(v); }
-    if let Some(v) = idcc { body["idccs"] = json!([v]); }
-    if let Some(v) = sort { body["sortValue"] = json!(v); }
+    if let Some(v) = interval_publication {
+        body["intervalPublication"] = json!(v);
+    }
+    if let Some(v) = idcc {
+        body["idccs"] = json!([v]);
+    }
+    if let Some(v) = sort {
+        body["sortValue"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1310,10 +1342,18 @@ pub async fn list_bocc_texts(
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
     });
-    if let Some(v) = interval_publication { body["intervalPublication"] = json!(v); }
-    if let Some(v) = idcc { body["idccs"] = json!([v]); }
-    if let Some(v) = titre { body["titre"] = json!(v); }
-    if let Some(v) = sort { body["sortValue"] = json!(v); }
+    if let Some(v) = interval_publication {
+        body["intervalPublication"] = json!(v);
+    }
+    if let Some(v) = idcc {
+        body["idccs"] = json!([v]);
+    }
+    if let Some(v) = titre {
+        body["titre"] = json!(v);
+    }
+    if let Some(v) = sort {
+        body["sortValue"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1331,9 +1371,15 @@ pub async fn list_boccs_and_texts(
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
     });
-    if let Some(v) = id_global_bocc { body["idGlobalBocc"] = json!(v); }
-    if let Some(v) = interval_publication { body["intervalPublication"] = json!(v); }
-    if let Some(v) = sort { body["sortValue"] = json!(v); }
+    if let Some(v) = id_global_bocc {
+        body["idGlobalBocc"] = json!(v);
+    }
+    if let Some(v) = interval_publication {
+        body["intervalPublication"] = json!(v);
+    }
+    if let Some(v) = sort {
+        body["sortValue"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1352,14 +1398,19 @@ pub async fn list_bodmr(
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
     });
-    if let Some(v) = years { body["years"] = json!(v); }
-    if let Some(v) = sort { body["sort"] = json!(v); }
+    if let Some(v) = years {
+        body["years"] = json!(v);
+    }
+    if let Some(v) = sort {
+        body["sort"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 // ── Listes — Conventions collectives ─────────────────────────────────────────
 
 /// Liste les conventions collectives (KALI).
+#[allow(clippy::too_many_arguments)]
 pub async fn list_conventions(
     client: &PisteClient,
     page_number: u32,
@@ -1375,11 +1426,21 @@ pub async fn list_conventions(
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
     });
-    if let Some(v) = idcc { body["idcc"] = json!(v); }
-    if let Some(v) = titre { body["titre"] = json!(v); }
-    if let Some(v) = legal_status { body["legalStatus"] = json!(v); }
-    if let Some(v) = key_words { body["keyWords"] = json!(v); }
-    if let Some(v) = sort { body["sort"] = json!(v); }
+    if let Some(v) = idcc {
+        body["idcc"] = json!(v);
+    }
+    if let Some(v) = titre {
+        body["titre"] = json!(v);
+    }
+    if let Some(v) = legal_status {
+        body["legalStatus"] = json!(v);
+    }
+    if let Some(v) = key_words {
+        body["keyWords"] = json!(v);
+    }
+    if let Some(v) = sort {
+        body["sort"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1400,23 +1461,30 @@ pub async fn list_debats_parlementaires(
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
     });
-    if let Some(v) = date_parution { body["dateParution"] = json!(v); }
-    if let Some(v) = types_publication { body["typesPublication"] = json!(v); }
-    if let Some(v) = sort { body["sortValue"] = json!(v); }
-    if let Some(v) = second_sort { body["secondSortValue"] = json!(v); }
+    if let Some(v) = date_parution {
+        body["dateParution"] = json!(v);
+    }
+    if let Some(v) = types_publication {
+        body["typesPublication"] = json!(v);
+    }
+    if let Some(v) = sort {
+        body["sortValue"] = json!(v);
+    }
+    if let Some(v) = second_sort {
+        body["secondSortValue"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 // ── Listes — Docs administratifs ─────────────────────────────────────────────
 
 /// Liste les documents administratifs.
-pub async fn list_docs_admins(
-    client: &PisteClient,
-    years: Option<Vec<i32>>,
-) -> Result<Value> {
+pub async fn list_docs_admins(client: &PisteClient, years: Option<Vec<i32>>) -> Result<Value> {
     let url = format!("{}/list/docsAdmins", LEGIFRANCE_BASE);
     let mut body = json!({});
-    if let Some(v) = years { body["years"] = json!(v); }
+    if let Some(v) = years {
+        body["years"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1460,28 +1528,42 @@ pub async fn list_questions_ecrites(
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
     });
-    if let Some(v) = periode_publication { body["periodePublication"] = json!(v); }
-    if let Some(v) = parlement_types { body["parlementTypes"] = json!(v); }
-    if let Some(v) = sort { body["sortValue"] = json!(v); }
-    if let Some(v) = second_sort { body["secondSortValue"] = json!(v); }
+    if let Some(v) = periode_publication {
+        body["periodePublication"] = json!(v);
+    }
+    if let Some(v) = parlement_types {
+        body["parlementTypes"] = json!(v);
+    }
+    if let Some(v) = sort {
+        body["sortValue"] = json!(v);
+    }
+    if let Some(v) = second_sort {
+        body["secondSortValue"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 // ── Recherche — Versions canoniques ──────────────────────────────────────────
 
 /// Recherche la version canonique d'un texte (la plus représentative).
+///
+/// Non encore câblée à une route/commande ; conservée pour couverture complète
+/// de l'API Legifrance (endpoints `/search/*`).
+#[allow(dead_code)]
 pub async fn search_canonical_version(client: &PisteClient, body: Value) -> Result<Value> {
     let url = format!("{}/search/canonicalVersion", LEGIFRANCE_BASE);
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Recherche la version canonique d'un article.
+#[allow(dead_code)]
 pub async fn search_canonical_article_version(client: &PisteClient, body: Value) -> Result<Value> {
     let url = format!("{}/search/canonicalArticleVersion", LEGIFRANCE_BASE);
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Recherche la version la plus proche d'une date.
+#[allow(dead_code)]
 pub async fn search_nearest_version(client: &PisteClient, body: Value) -> Result<Value> {
     let url = format!("{}/search/nearestVersion", LEGIFRANCE_BASE);
     client.post_json::<Value, Value>(&url, &body).await
@@ -1505,8 +1587,12 @@ pub async fn suggest_pdc(
 ) -> Result<Value> {
     let url = format!("{}/suggest/pdc", LEGIFRANCE_BASE);
     let mut body = json!({ "searchText": search_text });
-    if let Some(v) = fond { body["fond"] = json!(v); }
-    if let Some(v) = origin { body["origin"] = json!(v); }
+    if let Some(v) = fond {
+        body["fond"] = json!(v);
+    }
+    if let Some(v) = origin {
+        body["origin"] = json!(v);
+    }
     client.post_json::<Value, Value>(&url, &body).await
 }
 

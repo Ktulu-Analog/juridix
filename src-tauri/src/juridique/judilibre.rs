@@ -430,11 +430,7 @@ pub async fn get_taxonomy(
     id: &str,
     context_value: Option<&str>,
 ) -> Result<Value> {
-    let mut url = format!(
-        "{}/taxonomy?id={}",
-        JUDILIBRE_BASE,
-        urlencoding::encode(id)
-    );
+    let mut url = format!("{}/taxonomy?id={}", JUDILIBRE_BASE, urlencoding::encode(id));
     if let Some(ctx) = context_value {
         url.push_str(&format!("&context_value={}", urlencoding::encode(ctx)));
     }

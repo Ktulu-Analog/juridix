@@ -20,11 +20,11 @@ mod api;
 mod config;
 mod db;
 mod extract;
+mod juridique;
 mod mcp;
 mod models;
 mod rag;
 mod spaces;
-mod juridique;
 
 pub use api::{AppState, Credentials};
 pub use db::Database;

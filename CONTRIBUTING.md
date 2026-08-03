@@ -11,7 +11,7 @@ Merci de l'intérêt pour Juridix ! Ce guide explique comment contribuer efficac
 ## Lancer l'environnement de développement
 
 ```bash
-git clone https://github.com/<votre-org>/juridix.git
+git clone https://github.com/Ktulu-Analog/juridix.git
 cd juridix
 
 # Installer les dépendances frontend
@@ -38,6 +38,7 @@ juridix/
 └── src-tauri/              ← Backend Rust + config Tauri
     └── src/
         ├── api.rs          ← Endpoints Axum
+        ├── config.rs       ← Configuration & variables d'environnement
         ├── db.rs           ← SQLite (tokio-rusqlite)
         ├── rag.rs          ← Pipeline RAG
         ├── mcp.rs          ← Client MCP (HTTP Streamable)

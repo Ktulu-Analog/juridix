@@ -1,18 +1,44 @@
 # Juridix
 
-> Assistant juridique intelligent — application desktop cross-platform (Tauri v2 · Rust · React)
+> Assistant juridique souverain — application desktop cross-platform (Tauri v2 · Rust · React)
 
 [![CI](https://github.com/Ktulu-Analog/juridix/actions/workflows/ci.yml/badge.svg)](https://github.com/Ktulu-Analog/juridix/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8D8?logo=tauri)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-1.77+-orange?logo=rust)](https://rustup.rs)
 
-Juridix est un assistant IA spécialisé en droit français, fonctionnant entièrement en
-local sans service externe obligatoire — aucun Docker, aucun cloud requis pour le cœur
-de l'application. Le backend **Rust/Axum** est embarqué dans l'application **Tauri v2**
-et pilote un LLM via n'importe quelle API compatible OpenAI (Albert API, OpenAI, Mistral,
-Ollama…), avec un accès direct aux données juridiques officielles **Légifrance** et
-**JUDILIBRE**.
+Juridix est un assistant IA desktop spécialisé en droit français. Il permet d'**interroger
+directement les sources officielles** — **Légifrance** (codes, lois, décrets, JO, conventions
+collectives…) et **JUDILIBRE** (jurisprudence judiciaire, administrative, constitutionnelle) —
+puis de **faire traiter les documents consultés par une IA** : synthèse, analyse contradictoire,
+extraction des points clés, réponses sourcées à jour.
+
+
+## Aperçu
+
+<p align="center">
+  <img src="docs/juridix-1.png" alt="Juridix — capture d'écran 1" width="49%" />
+  <img src="docs/juridix-2.png" alt="Juridix — capture d'écran 2" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/juridix-3.png" alt="Juridix — capture d'écran 3" width="49%" />
+  <img src="docs/juridix-4.png" alt="Juridix — capture d'écran 4" width="49%" />
+</p>
+
+
+
+L'application est **souveraine par conception** :
+
+- **Aucune donnée envoyée à un tiers non choisi par l'utilisateur.** Le cœur applicatif
+  (recherche, RAG, persistance) tourne entièrement en local, sans compte ni service
+  obligatoire — aucun Docker, aucun cloud requis.
+- **Sources juridiques officielles** via l'**API PISTE**  (Légifrance +
+  JUDILIBRE), en OAuth2 direct — pas d'intermédiaire commercial.
+- **IA compatible Albert**, la plateforme de la DINUM (`https://ia.numerique.gouv.fr/outils-ia/albert-api/`),
+  utilisable pour le chat, les embeddings et le reranking — ou tout autre endpoint
+  compatible OpenAI (Mistral, OpenAI, Ollama en local…) au choix de l'utilisateur.
+- **Aucun stockage tiers** : conversations en SQLite local, index vectoriel RAG dans un
+  Qdrant local ou auto-hébergé — jamais de service SaaS imposé.
 
 ---
 
@@ -22,15 +48,14 @@ Ollama…), avec un accès direct aux données juridiques officielles **Légifra
 |---|---|
 | ⚖️ **Recherche juridique dédiée** | Panneau de recherche Légifrance + JUDILIBRE (codes, lois, décrets, JO, conventions collectives, jurisprudence judiciaire/administrative/constitutionnelle, CNIL…), dossiers, favoris et annotations |
 | 💬 **Chat IA juridique** | Espace « Juris » avec accès outillé (MCP) aux 62 outils Légifrance et à JUDILIBRE pour des réponses sourcées et à jour |
-| 🎨 **Illustration SVG** | Espace dédié à la génération de schémas et diagrammes vectoriels |
+| 📋 **Traitement IA des documents consultés** | Synthèse, analyse contradictoire et extraction des points clés d'un document ou d'un dossier constitué depuis la recherche juridique |
 | 📚 **RAG (Qdrant)** | Ingestion PDF/DOCX (jurisprudence, doctrine, contrats…), recherche sémantique + reranking ; stockage vectoriel via **Qdrant** local ou distant |
-| 🔌 **MCP** | Connexion à des serveurs MCP externes (HTTP Streamable 2025-03-26), notamment pour l'accès outillé à Légifrance/JUDILIBRE |
-| 🌐 **Recherche web** | Serveur MCP dédié — activé à la demande via le bouton « Web » ; alias et statut visibles en info-bulle |
+| 🔌 **MCP** | Connexion à des serveurs MCP externes (HTTP Streamable 2025-03-26) |
+| 🌐 **Recherche web** | Serveur MCP dédié (disponible sur mon GitHub ou utilisez votre propre serveur MCP Web)— activé à la demande via le bouton « Web » ; alias et statut visibles en info-bulle |
 | 📄 **Génération Word** | Export `.docx` depuis le chat en un clic |
 | 📊 **Graphiques ECharts** | Blocs ` ```echarts ` rendus interactivement |
 | 🖼️ **Graphiques SVG natifs** | Blocs ` ```svg ` rendus inline avec zoom, copie et téléchargement |
 | 📐 **Diagrammes Mermaid** | Flowcharts, séquences, Gantt… |
-| ∑ **Formules KaTeX** | Rendu LaTeX inline (`$…$`) et bloc (`$$…$$`) |
 | 💾 **Persistance locale** | Conversations en SQLite — aucun compte requis |
 | 🖥️ **Cross-platform** | Linux · macOS · Windows |
 
@@ -57,15 +82,21 @@ juridix/
 │
 └── src-tauri/                  ← Backend Rust + config Tauri
     └── src/
+        ├── main.rs             ← Point d'entrée binaire
+        ├── lib.rs              ← Setup Tauri + démarrage serveur HTTP
         ├── api.rs              ← Endpoints Axum (chat, RAG, MCP, search…)
+        ├── config.rs           ← Configuration & variables d'environnement
         ├── db.rs               ← SQLite via tokio-rusqlite
         ├── models.rs           ← Types Serde (Chat, Conversation, Chunk…)
         ├── rag.rs              ← Pipeline RAG Qdrant (retrieve → rerank → inject)
         ├── mcp.rs              ← Client MCP HTTP Streamable
         ├── extract.rs          ← Extraction texte PDF (lopdf) et DOCX (zip+XML)
         ├── spaces.rs           ← Lecture/écriture prompts.yml
-        ├── juridique/          ← API Légifrance + JUDILIBRE (recherche, articles, décisions…)
-        └── lib.rs              ← Setup Tauri + démarrage serveur HTTP
+        └── juridique/          ← Module Recherche juridique (API PISTE)
+            ├── client.rs       ← Client OAuth2 PISTE (token, refresh auto)
+            ├── legifrance.rs   ← Wrappers API Légifrance
+            ├── judilibre.rs    ← Wrappers API JUDILIBRE (jurisprudence)
+            └── routes.rs       ← Handlers Axum du module juridique
 ```
 
 ### Stack technique
@@ -80,7 +111,8 @@ juridix/
 | Frontend | React 18 · TypeScript · Vite |
 | Rendu | react-markdown · KaTeX · Mermaid · ECharts · SVG natif |
 | Documents | [docx](https://www.npmjs.com/package/docx) (génération Word) |
-| Données juridiques | API PISTE (Légifrance + JUDILIBRE) via [piste.gouv.fr](https://piste.gouv.fr) |
+| Données juridiques | API PISTE (Légifrance + JUDILIBRE) via [piste.gouv.fr](https://piste.gouv.fr)|
+| IA (chat, embeddings, reranking) | Toute API compatible OpenAI — par défaut [Albert](https://ia.numerique.gouv.fr/outils-ia/albert-api/) (DINUM) |
 
 ---
 
@@ -273,6 +305,24 @@ Juridix supporte le [Model Context Protocol](https://modelcontextprotocol.io) en
 Ajoutez des serveurs MCP dans les paramètres. Chaque serveur peut recevoir un **alias** affiché dans l'interface. Les outils disponibles sont découverts automatiquement et les statuts de connexion sont visibles en info-bulle au survol des boutons MCP et Web.
 
 Le bouton **Web** active un serveur MCP dédié à la recherche web (configurable séparément) ; il n'est inclus dans les appels que lorsqu'il est allumé.
+
+---
+
+## Souveraineté par conception
+
+Juridix est pensé pour un usage juridique professionnel sans dépendance à une plateforme
+étrangère ni à un service tiers non maîtrisé :
+
+- **Exécution locale** — le backend Rust/Axum tourne dans le processus Tauri sur le poste
+  de l'utilisateur ; aucune donnée ne transite par un serveur Juridix (il n'y en a pas).
+- **Sources officielles françaises** — Légifrance et JUDILIBRE sont interrogés en direct
+  via l'API **PISTE** de la DINUM, avec les identifiants OAuth2 propres à l'utilisateur.
+- **IA souveraine par défaut** — le endpoint LLM proposé par défaut est **Albert**, l'API
+  de la DINUM/Etalab ; tout autre endpoint compatible OpenAI (auto-hébergé via Ollama,
+  ou tiers au choix) reste utilisable.
+- **Aucun stockage tiers** — conversations et annotations en SQLite local ; index vectoriel
+  RAG dans une instance Qdrant locale ou auto-hébergée par l'utilisateur. Aucune télémétrie,
+  aucun compte, aucune synchronisation vers un service cloud imposé.
 
 ---
 

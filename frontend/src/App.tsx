@@ -31,15 +31,7 @@ import { IngestionModal } from './components/IngestionModal';
 import { JuridiquePanel } from './components/JuridiquePanel';
 import { API_BASE, IMAGE_MIME, IMAGE_EXTS, DOC_EXTS, MIME_TO_EXT, HISTORY_ITEMS } from './constants';
 
-const DEFAULT_EXTRA_MODELS = [
-  'openai/gpt-oss-120b',
-  'mistral-medium-2508',
-  'mistralai/Mistral-Small-3.2-24B-Instruct-2506',
-  'mistralai/Ministral-3-8B-Instruct-2512',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-];
-
-const DEFAULT_SETTINGS: Settings = { endpoint: '', bearer: '', model: '', extra_models: DEFAULT_EXTRA_MODELS, web_search_mcp: '', web_search_mcp_alias: '', mcp_servers: [] };
+const DEFAULT_SETTINGS: Settings = { endpoint: '', bearer: '', model: '', web_search_mcp: '', web_search_mcp_alias: '', mcp_servers: [] };
 
 // Applique immédiatement les préférences de police sur :root
 // Appelé au démarrage ET à chaque changement dans les settings
@@ -307,11 +299,9 @@ function AppInner() {
     if (!credentialsReady || !settings.endpoint || !settings.bearer) return;
 
     const applyFallback = () => {
-      const fallback = settings.extra_models?.length ? settings.extra_models
-        : settings.model ? [settings.model] : [];
-      if (fallback.length) {
-        setAvailableModels(fallback);
-        setActiveModel(prev => prev || settings.model || fallback[0]);
+      if (settings.model) {
+        setAvailableModels([settings.model]);
+        setActiveModel(prev => prev || settings.model);
       }
     };
 
@@ -323,7 +313,7 @@ function AppInner() {
         const ids = data?.data?.map(m => m.id).filter(Boolean) || [];
         if (!ids.length) {
           // Liste vide (API inaccessible, 401 absorbé côté backend, ou endpoint sans /models) →
-          // fallback sur la liste manuelle extra_models
+          // fallback sur le modèle par défaut configuré
           applyFallback();
           return;
         }
@@ -334,7 +324,7 @@ function AppInner() {
         setActiveModel(prev => prev || settings.model || ids[0]);
       })
       .catch(applyFallback);
-  }, [credentialsReady, settings.endpoint, settings.bearer, settings.model, settings.extra_models]);
+  }, [credentialsReady, settings.endpoint, settings.bearer, settings.model]);
 
   useEffect(() => {
     if (!credentialsReady || !settings.endpoint || !settings.bearer) { setCurrentUser(null); return; }
