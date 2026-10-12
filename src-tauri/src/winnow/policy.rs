@@ -133,7 +133,7 @@ pub fn enforce_floor(drops: &mut [Option<Omission>], min_keep_ratio: f64) {
         return;
     }
     let min_keep = ((n as f64 * min_keep_ratio).ceil() as usize).max(1);
-    let mut kept = drops.iter().filter(|d| d.is_none()).count();
+    let kept = drops.iter().filter(|d| d.is_none()).count();
     if kept >= min_keep {
         return;
     }
@@ -143,12 +143,9 @@ pub fn enforce_floor(drops: &mut [Option<Omission>], min_keep_ratio: f64) {
         let pb = drops[*b].map(|d| d.p).unwrap_or(1.0);
         pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
     });
-    for i in idx {
-        if kept >= min_keep {
-            break;
-        }
+    // Il manque `min_keep - kept` passages : on restitue les écartements les moins sûrs.
+    for i in idx.into_iter().take(min_keep - kept) {
         drops[i] = None;
-        kept += 1;
     }
 }
 

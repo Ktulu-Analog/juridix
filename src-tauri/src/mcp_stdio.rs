@@ -181,21 +181,16 @@ impl ServerDef {
 
 /// Quels outils d'un serveur sont exposés au LLM. Chaque définition d'outil part avec
 /// CHAQUE requête de chat : exposer les 62 outils de Légifrance coûte ≈ 5 900 jetons.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum ToolSelection {
     /// Le jeu restreint défini par Juridix pour ce serveur (`Spec::tools`). Par défaut.
+    #[default]
     Essential,
     /// Tous les outils du serveur.
     All,
     /// Une liste choisie par l'utilisateur (jamais vide).
     Custom { tools: Vec<String> },
-}
-
-impl Default for ToolSelection {
-    fn default() -> Self {
-        ToolSelection::Essential
-    }
 }
 
 /// Un outil du catalogue d'un serveur, tel que l'interface l'affiche.
@@ -480,6 +475,9 @@ pub struct ServerStatus {
     pub tools_exposed: Option<usize>,
 }
 
+/// Entrée du catalogue d'un serveur : (nom de l'outil, description, estimation de jetons).
+type CatalogEntry = (String, String, usize);
+
 /// Ensemble des serveurs STDIO : spécifications, dossier, secrets et sessions vivantes.
 pub struct Hub {
     specs: RwLock<Vec<Spec>>,
@@ -492,7 +490,7 @@ pub struct Hub {
     selections: RwLock<HashMap<String, ToolSelection>>,
     /// Catalogue connu de chaque serveur : (nom, description, jetons). Alimenté à chaque
     /// `tools/list` ; permet d'afficher « 6 sur 62 » sans relancer le serveur.
-    catalogs: RwLock<HashMap<String, Vec<(String, String, usize)>>>,
+    catalogs: RwLock<HashMap<String, Vec<CatalogEntry>>>,
 }
 
 impl Default for Hub {
@@ -677,7 +675,7 @@ impl Hub {
                         .map(|f| f.manifest.description.clone())
                         .unwrap_or_default(),
                     installed: found.is_some(),
-                    available: found.as_ref().map_or(false, |f| f.available),
+                    available: found.as_ref().is_some_and(|f| f.available),
                     running,
                     needs_credentials: self.missing_credentials(spec),
                     selection: self.selection(&spec.id),
@@ -718,7 +716,7 @@ impl Hub {
         let mut guard = slot.lock().await;
         let version = self.env_version.load(Ordering::SeqCst);
 
-        if guard.as_ref().map_or(false, |s| s.env_version != version) {
+        if guard.as_ref().is_some_and(|s| s.env_version != version) {
             *guard = None; // secrets modifiés : relance avec les nouveaux
         }
         if guard.is_none() {
@@ -758,14 +756,14 @@ impl Hub {
         }
         let (kept, dropped): (Vec<Value>, Vec<Value>) = all
             .into_iter()
-            .partition(|t| t["name"].as_str().map_or(false, |n| def.allows(n)));
+            .partition(|t| t["name"].as_str().is_some_and(|n| def.allows(n)));
         // Une entrée de la liste qui ne correspond à aucun outil du serveur est
         // presque toujours un outil renommé dans une nouvelle version : on le dit, sans échouer.
         for p in def.tools.iter().flatten() {
             let hit = kept
                 .iter()
                 .chain(dropped.iter())
-                .any(|t| t["name"].as_str().map_or(false, |n| matches_pattern(p, n)));
+                .any(|t| t["name"].as_str().is_some_and(|n| matches_pattern(p, n)));
             if !hit {
                 warn!(
                     "[MCP stdio] « {} » : l'outil autorisé « {p} » n'existe pas sur ce serveur",

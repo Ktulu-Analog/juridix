@@ -28,7 +28,9 @@
 
 use anyhow::{Context, Result};
 use rand::RngCore;
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::sync::Mutex;
 
 /// Nom de service utilisé pour toutes les entrées du trousseau. Reprend
@@ -88,9 +90,11 @@ impl KeyStore for SystemKeyStore {
 
 // ── Implémentation de test (en mémoire, jamais utilisée en production) ────────
 
+#[cfg(test)]
 #[derive(Default)]
 pub struct InMemoryKeyStore(Mutex<HashMap<String, String>>);
 
+#[cfg(test)]
 impl KeyStore for InMemoryKeyStore {
     fn set(&self, key: &str, value: &str) -> Result<()> {
         self.0

@@ -491,7 +491,7 @@ async fn download(client: &reqwest::Client, url: &str, max: u64) -> Result<Vec<u
     if !resp.status().is_success() {
         return Err(format!("téléchargement échoué ({}) : {url}", resp.status()));
     }
-    if resp.content_length().map_or(false, |n| n > max) {
+    if resp.content_length().is_some_and(|n| n > max) {
         return Err(format!(
             "fichier trop volumineux (> {} Mo)",
             max / 1024 / 1024
@@ -1078,6 +1078,7 @@ pub(crate) mod tests {
             web_base: "http://127.0.0.1:1".into(),
             api_base: "http://127.0.0.1:1".into(),
             pinned: Some("v9.9.9".into()),
+            public_key: None,
         };
         assert_eq!(src.latest_tag().await.unwrap(), "v9.9.9");
     }
@@ -1281,6 +1282,7 @@ pub(crate) mod tests {
             web_base: "http://127.0.0.1:1".into(),
             api_base: "http://127.0.0.1:1".into(),
             pinned: None,
+            public_key: None,
         };
         let st = check_update(&dead, None).await;
         assert!(st.latest.is_none() && !st.update_available && st.error.is_some());

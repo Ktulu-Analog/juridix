@@ -17,7 +17,6 @@ use tokio::sync::RwLock;
 
 use crate::config;
 
-/// Tronque une string UTF-8 à `max_bytes` octets sans couper un caractère multi-octet.
 // ── Provenance des citations (chantier 4) ─────────────────────────────────────
 //
 // Le LLM ne cite « de source » que ce qu'on lui a fourni : documents du prompt
@@ -55,6 +54,7 @@ fn grounding_sse(keys: &std::collections::BTreeSet<String>) -> Option<String> {
     ))
 }
 
+/// Tronque une string UTF-8 à `max_bytes` octets sans couper un caractère multi-octet.
 fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
@@ -1026,30 +1026,29 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
     // serveurs explicitement autorisés — dont les outils n'ont pas changé depuis l'autorisation —
     // sont annoncés au modèle ET exécutables. Les autres sont écartés, et l'interface en est
     // avertie (événement SSE `mcp_blocked`) sans interrompre la réponse.
-    let (authorized_servers, mcp_tools, blocked_sse): (Vec<String>, Vec<Value>, Bytes) = if !req
-        .mcp_servers
-        .is_empty()
-    {
-        let grants = state.db.list_mcp_grants().await.unwrap_or_default();
-        let gate = crate::mcp_grants::gate(&client, &grants, &req.mcp_servers).await;
-        for b in &gate.blocked {
-            warn!(
-                "MCP: serveur {} non autorisé ({:?}) — ses outils ne sont pas exposés au modèle",
-                b.server, b.status
-            );
-        }
-        let tools = gate
-            .tools
-            .iter()
-            .map(|(server, tool)| crate::mcp::mcp_tool_to_openai(tool, server))
-            .collect();
-        let sse = crate::mcp_grants::blocked_sse(&gate.blocked)
-            .map(Bytes::from)
-            .unwrap_or_default();
-        (gate.authorized, tools, sse)
-    } else {
-        (Vec::new(), Vec::new(), Bytes::new())
-    };
+    let (authorized_servers, mcp_tools, blocked_sse): (Vec<String>, Vec<Value>, Bytes) =
+        if !req.mcp_servers.is_empty() {
+            let grants = state.db.list_mcp_grants().await.unwrap_or_default();
+            let gate = crate::mcp_grants::gate(&client, &grants, &req.mcp_servers).await;
+            for b in &gate.blocked {
+                warn!(
+                    "MCP: serveur {} non autorisé ({:?}) — \
+                     ses outils ne sont pas exposés au modèle",
+                    b.server, b.status
+                );
+            }
+            let tools = gate
+                .tools
+                .iter()
+                .map(|(server, tool)| crate::mcp::mcp_tool_to_openai(tool, server))
+                .collect();
+            let sse = crate::mcp_grants::blocked_sse(&gate.blocked)
+                .map(Bytes::from)
+                .unwrap_or_default();
+            (gate.authorized, tools, sse)
+        } else {
+            (Vec::new(), Vec::new(), Bytes::new())
+        };
 
     // Ajouter l'instruction MCP image si des serveurs MCP autorisés sont disponibles
     if !authorized_servers.is_empty() {

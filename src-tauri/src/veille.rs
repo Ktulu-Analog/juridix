@@ -610,7 +610,7 @@ impl PisteFetcher {
                 serde_json::to_value(&resp).map_err(|e| FetchError::Other(e.to_string()))?;
             out.items.extend(extract_legifrance(&value, &fond_code));
             let seen = (page * PAGE_SIZE) as i64;
-            if raw_count < PAGE_SIZE as usize || resp.total.map_or(false, |t| seen >= t) {
+            if raw_count < PAGE_SIZE as usize || resp.total.is_some_and(|t| seen >= t) {
                 return Ok(out);
             }
         }
@@ -1329,7 +1329,7 @@ async fn marquer_lus(
     body: Option<Json<LuBody>>,
 ) -> Response {
     let ids = body.and_then(|Json(b)| b.ids);
-    if ids.as_ref().map_or(false, |i| i.len() > 1000) {
+    if ids.as_ref().is_some_and(|i| i.len() > 1000) {
         return err(StatusCode::BAD_REQUEST, "Trop d'identifiants.");
     }
     match state.db.veille_marquer_lus(&id, ids).await {
@@ -2663,6 +2663,12 @@ mod tests {
         let (router, state) = crate::api::build_router(db, std::path::PathBuf::from("prompts.yml"));
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
+        // Le routeur est protégé par `security::guard` : on retient le jeton de CE serveur de
+        // test (un par test, port éphémère) pour que `call` puisse s'authentifier.
+        TEST_TOKENS
+            .lock()
+            .unwrap()
+            .insert(format!("http://{addr}"), state.api_token.clone());
         tokio::spawn(async move { axum::serve(l, router).await.unwrap() });
         Api {
             base: format!("http://{addr}/api/veilles"),
@@ -2670,6 +2676,11 @@ mod tests {
             _db: t,
         }
     }
+
+    /// Jeton d'API de chaque serveur de test, par origine (`http://127.0.0.1:<port>`).
+    static TEST_TOKENS: once_cell::sync::Lazy<
+        std::sync::Mutex<std::collections::HashMap<String, String>>,
+    > = once_cell::sync::Lazy::new(Default::default);
 
     async fn call(method: &str, url: &str, body: Option<Value>) -> (u16, Value) {
         let c = reqwest::Client::new();
@@ -2680,6 +2691,21 @@ mod tests {
             "DELETE" => c.delete(url),
             _ => unreachable!(),
         };
+        // Garde de l'API locale : en-tête Host attendu (port officiel, pas le port éphémère du
+        // test) + jeton `X-Juridix-Token`.
+        let origin: String = url.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
+        let token = TEST_TOKENS
+            .lock()
+            .unwrap()
+            .get(&origin)
+            .cloned()
+            .unwrap_or_default();
+        let rb = rb
+            .header(
+                reqwest::header::HOST,
+                format!("127.0.0.1:{}", crate::config::api_port()),
+            )
+            .header(crate::security::TOKEN_HEADER, token);
         let rb = match body {
             Some(b) => rb.json(&b),
             None => rb,

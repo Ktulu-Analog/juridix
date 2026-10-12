@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+  # Marvin attack : pas de correctif amont. Juridix n'utilise que du HMAC pour les JWT.
+  "RUSTSEC-2023-0071",
+  # À retirer dès que pdf-extract / plist publient une version avec lopdf >= 0.42 / quick-xml >= 0.41
+  # "RUSTSEC-2026-0187",
+  # "RUSTSEC-2026-0194",
+  # "RUSTSEC-2026-0195",
+]

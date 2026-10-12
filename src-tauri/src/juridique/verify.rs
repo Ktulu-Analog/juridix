@@ -1201,6 +1201,7 @@ fn base_verification(code: Option<&str>, r: &ArticleRef) -> Verification {
 /// Les références identiques (même code, même numéro) sont regroupées : une
 /// seule requête, plusieurs occurrences. Les appels sont parallèles, bornés à
 /// `LOOKUP_CONCURRENCY`, et plafonnés à `MAX_DISTINCT_LOOKUPS`.
+#[cfg(test)]
 pub async fn verify_all(
     lookup: &dyn ArticleLookup,
     text: &str,
@@ -1436,9 +1437,8 @@ pub(crate) fn norm_num_key(s: &str) -> String {
 pub(crate) fn code_matches(titre: &str, code: &str) -> bool {
     let (t, c) = (fold(&strip_tags(titre)), fold(code));
     t == c
-        || t.strip_prefix(&c).map_or(false, |rest| {
-            !rest.chars().next().map_or(false, |ch| ch.is_alphanumeric())
-        })
+        || t.strip_prefix(&c)
+            .is_some_and(|rest| !rest.chars().next().is_some_and(|ch| ch.is_alphanumeric()))
 }
 
 /// Un article correspondant trouvé dans une réponse `/search`.
@@ -1535,7 +1535,7 @@ pub(crate) fn collect_matches(
         if res
             .get("id")
             .and_then(Value::as_str)
-            .map_or(false, |i| i.starts_with("LEGIARTI"))
+            .is_some_and(|i| i.starts_with("LEGIARTI"))
         {
             push(res, &res_etat);
         }

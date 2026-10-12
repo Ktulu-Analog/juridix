@@ -74,7 +74,7 @@ sha2 = "0.10"
 zip = "2"
 # Vérification des signatures minisign du pack MCP (aucune dépendance transitive)
 minisign-verify = "0.3"
-quick-xml = { version = "0.36", features = ["serialize"] }
+quick-xml = { version = "0.41", features = ["serialize"] }
 encoding_rs = "0.8"
 urlencoding = "2"
 

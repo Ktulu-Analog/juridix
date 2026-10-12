@@ -11,27 +11,7 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-//! Autorisation des serveurs MCP — « une fois par serveur », jamais « à chaque appel ».
-//!
-//! ## Le risque (R-02)
-//! Le modèle enchaîne les appels d'outils sans intervention. Un contenu piégé (injection de prompt
-//! indirecte) ou un serveur qui modifie ses outils après coup (« rug pull ») peut donc déclencher
-//! des appels que l'utilisateur n'a jamais envisagés, ou exfiltrer des données par les arguments
-//! d'un outil.
-//!
-//! ## Le principe
-//! - Un serveur MCP **externe** (HTTP) n'est utilisé par le modèle qu'après une **autorisation
-//!   globale** : l'utilisateur voit la liste complète de ses outils et autorise le serveur d'un
-//!   seul geste (à l'ajout du serveur, ou au premier usage). Aucune confirmation par appel.
-//! - L'autorisation est liée à une **empreinte** des outils (nom, description, schéma, annotations).
-//!   Si le serveur change ses outils, l'autorisation tombe et doit être renouvelée : un serveur ne
-//!   peut pas « gagner la confiance » avec des outils anodins puis les remplacer.
-//! - Les serveurs **officiels** (`stdio:`, lancés par Juridix depuis le pack signé, outils
-//!   sélectionnés par l'application) sont fiables par construction : les activer dans le panneau
-//!   « Serveurs officiels » vaut autorisation.
-//! - L'application filtre côté backend, à chaque message : les outils d'un serveur non autorisé ne
-//!   sont ni annoncés au modèle ni exécutables. L'utilisateur en est averti (événement SSE
-//!   `mcp_blocked`) sans interruption de la réponse.
+//! Autorisation des serveurs MCP — « une fois par serveur »
 
 use reqwest::Client;
 use serde::Serialize;
