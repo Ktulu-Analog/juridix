@@ -120,7 +120,9 @@ pub fn platform_key() -> String {
 fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Lit le manifest d'un dossier de serveur ; `expected_id` doit correspondre
@@ -132,7 +134,10 @@ pub fn read_manifest(server_dir: &Path, expected_id: &str) -> Result<Manifest, S
     let m: Manifest =
         serde_json::from_str(&text).map_err(|e| format!("manifest.json invalide : {e}"))?;
     if m.id != expected_id {
-        return Err(format!("manifest.json : id « {} » au lieu de « {expected_id} »", m.id));
+        return Err(format!(
+            "manifest.json : id « {} » au lieu de « {expected_id} »",
+            m.id
+        ));
     }
     Ok(m)
 }
@@ -151,7 +156,11 @@ pub fn discover(dir: &Path, ids: &[String]) -> Vec<DiscoveredServer> {
         match read_manifest(&server_dir, id) {
             Ok(manifest) => {
                 let available = manifest.bin.contains_key(&platform_key());
-                found.push(DiscoveredServer { manifest, dir: server_dir, available });
+                found.push(DiscoveredServer {
+                    manifest,
+                    dir: server_dir,
+                    available,
+                });
             }
             Err(e) => warn!("MCP: {id} ignoré — {e}"),
         }
@@ -169,7 +178,9 @@ pub fn resolve_bin(server: &DiscoveredServer) -> Result<PathBuf, String> {
         .get(&platform_key())
         .ok_or_else(|| format!("aucun binaire pour {} dans le manifest", platform_key()))?;
     if !is_safe_relative(rel) {
-        return Err(format!("chemin de binaire non autorisé dans le manifest : {rel}"));
+        return Err(format!(
+            "chemin de binaire non autorisé dans le manifest : {rel}"
+        ));
     }
     Ok(server.dir.join(rel))
 }
@@ -214,7 +225,9 @@ impl Default for PackSource {
             PACK_REPO.to_string()
         };
         let pinned = if overrides {
-            std::env::var("JURIDIX_MCP_PACK_VERSION").ok().filter(|v| !v.trim().is_empty())
+            std::env::var("JURIDIX_MCP_PACK_VERSION")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
         } else {
             None
         };
@@ -278,7 +291,10 @@ impl PackSource {
             .await
             .map_err(|e| format!("GitHub injoignable : {e}"))?;
         if !resp.status().is_success() {
-            return Err(format!("GitHub a répondu {} (quota dépassé ou dépôt introuvable)", resp.status()));
+            return Err(format!(
+                "GitHub a répondu {} (quota dépassé ou dépôt introuvable)",
+                resp.status()
+            ));
         }
         let rel: Rel = resp.json().await.map_err(|e| e.to_string())?;
         if !safe_tag(&rel.tag_name) {
@@ -288,13 +304,19 @@ impl PackSource {
     }
 
     fn asset_url(&self, tag: &str, asset: &str) -> String {
-        format!("{}/{}/releases/download/{}/{}", self.web_base, self.repo, tag, asset)
+        format!(
+            "{}/{}/releases/download/{}/{}",
+            self.web_base, self.repo, tag, asset
+        )
     }
 }
 
 /// Un tag est inséré dans une URL et un nom de fichier : caractères sûrs uniquement.
 fn safe_tag(t: &str) -> bool {
-    !t.is_empty() && t.len() <= 40 && t.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+    !t.is_empty()
+        && t.len() <= 40
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
 }
 
 // ── Mise à jour : état ────────────────────────────────────────────────────────
@@ -372,11 +394,18 @@ pub struct InstallReport {
 /// publique `public_key_b64`. Seules les signatures pré-hachées (format par défaut de minisign)
 /// sont acceptées, et le commentaire signé doit nommer la release `tag` : une signature
 /// légitime d'une AUTRE release (rejeu) est refusée.
-pub fn verify_minisign(public_key_b64: &str, data: &[u8], signature_text: &str, tag: &str) -> Result<(), String> {
+pub fn verify_minisign(
+    public_key_b64: &str,
+    data: &[u8],
+    signature_text: &str,
+    tag: &str,
+) -> Result<(), String> {
     let pk = PublicKey::from_base64(public_key_b64.trim())
         .map_err(|e| format!("clé publique de signature invalide : {e}"))?;
-    let sig = Signature::decode(signature_text).map_err(|e| format!("signature illisible : {e}"))?;
-    pk.verify(data, &sig, false).map_err(|e| format!("signature INVALIDE : {e}"))?;
+    let sig =
+        Signature::decode(signature_text).map_err(|e| format!("signature illisible : {e}"))?;
+    pk.verify(data, &sig, false)
+        .map_err(|e| format!("signature INVALIDE : {e}"))?;
     if !sig.trusted_comment().split_whitespace().any(|w| w == tag) {
         return Err(format!(
             "la signature ne désigne pas la release {tag} (commentaire signé : « {} ») — rejeu d'une autre release ?",
@@ -403,16 +432,25 @@ async fn verify_release_signature(
     let sig = download(client, &src.asset_url(tag, "checksums.txt.minisig"), MAX_SIGNATURE_BYTES)
         .await
         .map_err(|e| format!("signature de la release {tag} introuvable (checksums.txt.minisig) — installation refusée : {e}"))?;
-    let sig = String::from_utf8(sig).map_err(|_| "signature illisible (UTF-8) — installation refusée".to_string())?;
-    verify_minisign(public_key, checksums, &sig, tag).map_err(|e| format!("{e} — installation refusée"))?;
+    let sig = String::from_utf8(sig)
+        .map_err(|_| "signature illisible (UTF-8) — installation refusée".to_string())?;
+    verify_minisign(public_key, checksums, &sig, tag)
+        .map_err(|e| format!("{e} — installation refusée"))?;
     info!("MCP: signature de la release {tag} vérifiée");
     Ok(SignatureStatus::Verified)
 }
 
 /// Composantes numériques d'une version (« v1.2.3-rc1 » → [1, 2, 3]).
 fn version_parts(v: &str) -> Vec<u64> {
-    let core: String = v.trim_start_matches('v').chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-    core.split('.').filter(|p| !p.is_empty()).map(|p| p.parse().unwrap_or(0)).collect()
+    let core: String = v
+        .trim_start_matches('v')
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    core.split('.')
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse().unwrap_or(0))
+        .collect()
 }
 
 /// `a < b` pour deux versions numériques (composantes manquantes = 0).
@@ -437,22 +475,39 @@ pub fn expected_hash(checksums: &str, filename: &str) -> Option<String> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Télécharge `url` en bornant la taille (en-tête ET flux : un serveur peut mentir sur la longueur).
 async fn download(client: &reqwest::Client, url: &str, max: u64) -> Result<Vec<u8>, String> {
-    let mut resp = client.get(url).send().await.map_err(|e| format!("téléchargement impossible : {e}"))?;
+    let mut resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("téléchargement impossible : {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("téléchargement échoué ({}) : {url}", resp.status()));
     }
     if resp.content_length().map_or(false, |n| n > max) {
-        return Err(format!("fichier trop volumineux (> {} Mo)", max / 1024 / 1024));
+        return Err(format!(
+            "fichier trop volumineux (> {} Mo)",
+            max / 1024 / 1024
+        ));
     }
     let mut out: Vec<u8> = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("téléchargement interrompu : {e}"))? {
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("téléchargement interrompu : {e}"))?
+    {
         if out.len() as u64 + chunk.len() as u64 > max {
-            return Err(format!("fichier trop volumineux (> {} Mo)", max / 1024 / 1024));
+            return Err(format!(
+                "fichier trop volumineux (> {} Mo)",
+                max / 1024 / 1024
+            ));
         }
         out.extend_from_slice(&chunk);
     }
@@ -462,13 +517,16 @@ async fn download(client: &reqwest::Client, url: &str, max: u64) -> Result<Vec<u
 /// Extrait `bytes` (zip d'un serveur) dans `staging`, en n'acceptant que des
 /// entrées de la forme `<id>/...` sans chemin dangereux.
 fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), String> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("archive illisible : {e}"))?;
+    let mut zip =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("archive illisible : {e}"))?;
     if zip.len() > MAX_ENTRIES {
         return Err(format!("archive suspecte ({} entrées)", zip.len()));
     }
     let mut total: u64 = 0;
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| format!("archive illisible : {e}"))?;
+        let mut entry = zip
+            .by_index(i)
+            .map_err(|e| format!("archive illisible : {e}"))?;
         // `enclosed_name` rejette `..` et les chemins absolus (« zip slip »).
         let rel = entry
             .enclosed_name()
@@ -476,7 +534,12 @@ fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), Stri
         let mut comps = rel.components();
         match comps.next() {
             Some(Component::Normal(first)) if first == id => {}
-            _ => return Err(format!("entrée hors de « {id}/ » dans l'archive : {}", entry.name())),
+            _ => {
+                return Err(format!(
+                    "entrée hors de « {id}/ » dans l'archive : {}",
+                    entry.name()
+                ))
+            }
         }
         let inner: PathBuf = comps.collect();
         let dest = staging.join(&inner);
@@ -485,7 +548,10 @@ fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), Stri
             continue;
         }
         if entry.is_symlink() {
-            return Err(format!("lien symbolique refusé dans l'archive : {}", entry.name()));
+            return Err(format!(
+                "lien symbolique refusé dans l'archive : {}",
+                entry.name()
+            ));
         }
         total = total.saturating_add(entry.size());
         if total > MAX_UNPACKED_BYTES {
@@ -510,7 +576,10 @@ fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), Stri
             use std::os::unix::fs::PermissionsExt;
             // Binaires exécutables ; le reste en lecture/écriture simple.
             let exec = inner.starts_with("bin");
-            let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(if exec { 0o755 } else { 0o644 }));
+            let _ = std::fs::set_permissions(
+                &dest,
+                std::fs::Permissions::from_mode(if exec { 0o755 } else { 0o644 }),
+            );
         }
     }
     Ok(())
@@ -538,7 +607,9 @@ fn install_one(dir: &Path, id: &str, zip_bytes: &[u8]) -> Result<(), String> {
             )
         })?;
         if !is_safe_relative(rel) {
-            return Err(format!("chemin de binaire non autorisé dans le manifest : {rel}"));
+            return Err(format!(
+                "chemin de binaire non autorisé dans le manifest : {rel}"
+            ));
         }
         if !staging.join(rel).is_file() {
             return Err(format!("binaire annoncé mais absent de l'archive : {rel}"));
@@ -553,8 +624,9 @@ fn install_one(dir: &Path, id: &str, zip_bytes: &[u8]) -> Result<(), String> {
     let target = dir.join(id);
     let had_old = target.exists();
     if had_old {
-        std::fs::rename(&target, &backup)
-            .map_err(|e| format!("remplacement impossible (serveur en cours d'utilisation ?) : {e}"))?;
+        std::fs::rename(&target, &backup).map_err(|e| {
+            format!("remplacement impossible (serveur en cours d'utilisation ?) : {e}")
+        })?;
     }
     if let Err(e) = std::fs::rename(&staging, &target) {
         if had_old {
@@ -580,7 +652,8 @@ pub async fn install(
     ids: &[String],
     on_replace: OnReplace<'_>,
 ) -> Result<InstallReport, String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("dossier des serveurs MCP inaccessible : {e}"))?;
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("dossier des serveurs MCP inaccessible : {e}"))?;
     let tag = src.latest_tag().await?;
     let version = tag.trim_start_matches('v').to_string();
 
@@ -598,10 +671,16 @@ pub async fn install(
     }
     let client = http_client();
 
-    let checksums = download(&client, &src.asset_url(&tag, "checksums.txt"), MAX_CHECKSUMS_BYTES).await?;
+    let checksums = download(
+        &client,
+        &src.asset_url(&tag, "checksums.txt"),
+        MAX_CHECKSUMS_BYTES,
+    )
+    .await?;
     // La signature est vérifiée sur les octets bruts, AVANT toute lecture de leur contenu.
     let signature = verify_release_signature(src, &client, &tag, &checksums).await?;
-    let checksums = String::from_utf8(checksums).map_err(|e| format!("checksums.txt illisible : {e}"))?;
+    let checksums =
+        String::from_utf8(checksums).map_err(|e| format!("checksums.txt illisible : {e}"))?;
 
     let mut servers = Vec::new();
     let mut any_ok = false;
@@ -628,18 +707,30 @@ pub async fn install(
             Ok(()) => {
                 info!("MCP: « {id} » {version} installé dans {}", dir.display());
                 any_ok = true;
-                servers.push(ServerInstall { id: id.clone(), installed: true, error: None });
+                servers.push(ServerInstall {
+                    id: id.clone(),
+                    installed: true,
+                    error: None,
+                });
             }
             Err(e) => {
                 warn!("MCP: installation de « {id} » échouée — {e}");
-                servers.push(ServerInstall { id: id.clone(), installed: false, error: Some(e) });
+                servers.push(ServerInstall {
+                    id: id.clone(),
+                    installed: false,
+                    error: Some(e),
+                });
             }
         }
     }
     if any_ok {
         let _ = std::fs::write(dir.join(".pack-version"), &version);
     }
-    Ok(InstallReport { version, servers, signature })
+    Ok(InstallReport {
+        version,
+        servers,
+        signature,
+    })
 }
 
 // ============================================================================
@@ -685,7 +776,12 @@ pub(crate) mod tests {
     }
 
     /// Zip d'un serveur tel que publié : `<id>/manifest.json` + `<id>/bin/<binaire>`.
-    fn server_zip(id: &str, bin_content: &str, manifest_id: Option<&str>, with_platform_bin: bool) -> Vec<u8> {
+    fn server_zip(
+        id: &str,
+        bin_content: &str,
+        manifest_id: Option<&str>,
+        with_platform_bin: bool,
+    ) -> Vec<u8> {
         let mut buf = Cursor::new(Vec::new());
         {
             let mut z = zip::ZipWriter::new(&mut buf);
@@ -741,13 +837,20 @@ pub(crate) mod tests {
         if m.no_redirect {
             return StatusCode::NOT_FOUND.into_response();
         }
-        (StatusCode::FOUND, [(header::LOCATION, "/o/r/releases/tag/v1.2.3")]).into_response()
+        (
+            StatusCode::FOUND,
+            [(header::LOCATION, "/o/r/releases/tag/v1.2.3")],
+        )
+            .into_response()
     }
     async fn api_latest(State(m): State<Mock>) -> Response {
         m.requested.lock().unwrap().push("api".into());
         axum::Json(serde_json::json!({ "tag_name": "v1.2.3" })).into_response()
     }
-    async fn asset(State(m): State<Mock>, AxPath((tag, name)): AxPath<(String, String)>) -> Response {
+    async fn asset(
+        State(m): State<Mock>,
+        AxPath((tag, name)): AxPath<(String, String)>,
+    ) -> Response {
         m.requested.lock().unwrap().push(name.clone());
         assert_eq!(tag, "v1.2.3");
         if name == "checksums.txt" {
@@ -784,7 +887,12 @@ pub(crate) mod tests {
             checks.push_str(&format!("{}  {}\n", sha256_hex(&bytes), name));
             map.insert(name.to_string(), bytes);
         }
-        Mock { assets: Arc::new(map), checksums: Arc::new(checks), requested: Arc::default(), no_redirect }
+        Mock {
+            assets: Arc::new(map),
+            checksums: Arc::new(checks),
+            requested: Arc::default(),
+            no_redirect,
+        }
     }
 
     fn ids() -> Vec<String> {
@@ -799,7 +907,13 @@ pub(crate) mod tests {
     #[test]
     fn platform_key_shape() {
         let k = platform_key();
-        assert!(["linux", "macos", "windows"].iter().any(|o| k.starts_with(o)) && (k.ends_with("x64") || k.ends_with("arm64")), "{k}");
+        assert!(
+            ["linux", "macos", "windows"]
+                .iter()
+                .any(|o| k.starts_with(o))
+                && (k.ends_with("x64") || k.ends_with("arm64")),
+            "{k}"
+        );
     }
 
     #[test]
@@ -818,7 +932,11 @@ pub(crate) mod tests {
     fn discover_only_lists_requested_servers_and_rejects_id_mismatch() {
         let d = TmpDir::new("disc");
         // Deux serveurs voulus, un « intrus » (Grist), un dossier au manifest trompeur.
-        for (dir, manifest_id) in [("mcp-legifrance", "mcp-legifrance"), ("mcp-grist", "mcp-grist"), ("mcp-judilibre", "mcp-legifrance")] {
+        for (dir, manifest_id) in [
+            ("mcp-legifrance", "mcp-legifrance"),
+            ("mcp-grist", "mcp-grist"),
+            ("mcp-judilibre", "mcp-legifrance"),
+        ] {
             let p = d.0.join(dir);
             std::fs::create_dir_all(&p).unwrap();
             let m = serde_json::json!({"id": manifest_id, "name": dir, "bin": {platform_key(): "bin/x"}});
@@ -826,18 +944,31 @@ pub(crate) mod tests {
         }
         let found = discover(&d.0, &ids());
         let got: Vec<_> = found.iter().map(|s| s.manifest.id.as_str()).collect();
-        assert_eq!(got, ["mcp-legifrance"], "Grist ignoré ; mcp-judilibre rejeté (id du manifest ≠ dossier)");
+        assert_eq!(
+            got,
+            ["mcp-legifrance"],
+            "Grist ignoré ; mcp-judilibre rejeté (id du manifest ≠ dossier)"
+        );
         assert!(found[0].available);
     }
 
     #[test]
     fn resolve_bin_refuses_escaping_paths() {
         let mk = |rel: &str| DiscoveredServer {
-            manifest: Manifest { id: "x".into(), name: "x".into(), description: String::new(), bin: HashMap::from([(platform_key(), rel.to_string())]), args: vec![] },
+            manifest: Manifest {
+                id: "x".into(),
+                name: "x".into(),
+                description: String::new(),
+                bin: HashMap::from([(platform_key(), rel.to_string())]),
+                args: vec![],
+            },
             dir: PathBuf::from("/srv/mcp/x"),
             available: true,
         };
-        assert_eq!(resolve_bin(&mk("bin/x")).unwrap(), PathBuf::from("/srv/mcp/x/bin/x"));
+        assert_eq!(
+            resolve_bin(&mk("bin/x")).unwrap(),
+            PathBuf::from("/srv/mcp/x/bin/x")
+        );
         assert!(resolve_bin(&mk("../../bin/sh")).is_err());
         assert!(resolve_bin(&mk("/bin/sh")).is_err());
     }
@@ -847,7 +978,11 @@ pub(crate) mod tests {
         let h = "a".repeat(64);
         let txt = format!("{h}  mcp-legifrance-1.2.3.zip\n{}  *mcp-judilibre-1.2.3.zip\n{}  ./x.zip\nnot-a-hash  bad.zip\n", "B".repeat(64), "c".repeat(64));
         assert_eq!(expected_hash(&txt, "mcp-legifrance-1.2.3.zip"), Some(h));
-        assert_eq!(expected_hash(&txt, "mcp-judilibre-1.2.3.zip"), Some("b".repeat(64)), "casse normalisée, « * » toléré");
+        assert_eq!(
+            expected_hash(&txt, "mcp-judilibre-1.2.3.zip"),
+            Some("b".repeat(64)),
+            "casse normalisée, « * » toléré"
+        );
         assert_eq!(expected_hash(&txt, "x.zip"), Some("c".repeat(64)));
         assert_eq!(expected_hash(&txt, "bad.zip"), None, "pas un SHA-256");
         assert_eq!(expected_hash(&txt, "absent.zip"), None);
@@ -859,10 +994,22 @@ pub(crate) mod tests {
     async fn installs_only_the_requested_servers_and_never_downloads_the_others() {
         let mock = mock_with(
             vec![
-                ("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "BIN-LEGI", None, true)),
-                ("mcp-judilibre-1.2.3.zip", server_zip("mcp-judilibre", "BIN-JUDI", None, true)),
-                ("mcp-grist-1.2.3.zip", server_zip("mcp-grist", "BIN-GRIST", None, true)),
-                ("mcp-system-1.2.3.zip", server_zip("mcp-system", "BIN-SYS", None, true)),
+                (
+                    "mcp-legifrance-1.2.3.zip",
+                    server_zip("mcp-legifrance", "BIN-LEGI", None, true),
+                ),
+                (
+                    "mcp-judilibre-1.2.3.zip",
+                    server_zip("mcp-judilibre", "BIN-JUDI", None, true),
+                ),
+                (
+                    "mcp-grist-1.2.3.zip",
+                    server_zip("mcp-grist", "BIN-GRIST", None, true),
+                ),
+                (
+                    "mcp-system-1.2.3.zip",
+                    server_zip("mcp-system", "BIN-SYS", None, true),
+                ),
                 ("mcp-pack-1.2.3.zip", vec![0u8; 10]),
             ],
             false,
@@ -875,26 +1022,48 @@ pub(crate) mod tests {
         assert_eq!(rep.version, "1.2.3");
         assert!(rep.servers.iter().all(|s| s.installed), "{rep:?}");
         assert_eq!(installed_version(&d.0).as_deref(), Some("1.2.3"));
-        let bin = d.0.join("mcp-legifrance").join(format!("bin/mcp-legifrance-{}", platform_key()));
+        let bin =
+            d.0.join("mcp-legifrance")
+                .join(format!("bin/mcp-legifrance-{}", platform_key()));
         assert_eq!(std::fs::read_to_string(&bin).unwrap(), "BIN-LEGI");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_ne!(std::fs::metadata(&bin).unwrap().permissions().mode() & 0o111, 0, "binaire exécutable");
+            assert_ne!(
+                std::fs::metadata(&bin).unwrap().permissions().mode() & 0o111,
+                0,
+                "binaire exécutable"
+            );
         }
         assert!(!d.0.join("mcp-grist").exists() && !d.0.join("mcp-system").exists());
-        assert!(!d.0.join(".staging-mcp-legifrance").exists(), "zone temporaire nettoyée");
+        assert!(
+            !d.0.join(".staging-mcp-legifrance").exists(),
+            "zone temporaire nettoyée"
+        );
 
         let req = requested.lock().unwrap().clone();
-        assert!(req.iter().all(|r| !r.contains("grist") && !r.contains("system") && !r.contains("pack-")), "seuls Légifrance et Judilibre sont téléchargés : {req:?}");
-        assert!(req.contains(&"mcp-legifrance-1.2.3.zip".to_string()) && req.contains(&"mcp-judilibre-1.2.3.zip".to_string()));
+        assert!(
+            req.iter()
+                .all(|r| !r.contains("grist") && !r.contains("system") && !r.contains("pack-")),
+            "seuls Légifrance et Judilibre sont téléchargés : {req:?}"
+        );
+        assert!(
+            req.contains(&"mcp-legifrance-1.2.3.zip".to_string())
+                && req.contains(&"mcp-judilibre-1.2.3.zip".to_string())
+        );
         // Découverte ensuite possible, Grist absent.
         assert_eq!(discover(&d.0, &ids()).len(), 2);
     }
 
     #[tokio::test]
     async fn tag_lookup_falls_back_to_the_api_when_the_redirect_fails() {
-        let mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "B", None, true))], true);
+        let mock = mock_with(
+            vec![(
+                "mcp-legifrance-1.2.3.zip",
+                server_zip("mcp-legifrance", "B", None, true),
+            )],
+            true,
+        );
         let requested = mock.requested.clone();
         let src = spawn_mock(mock).await;
         assert_eq!(src.latest_tag().await.unwrap(), "v1.2.3");
@@ -904,7 +1073,12 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn pinned_version_skips_any_lookup() {
-        let src = PackSource { repo: "o/r".into(), web_base: "http://127.0.0.1:1".into(), api_base: "http://127.0.0.1:1".into(), pinned: Some("v9.9.9".into()) };
+        let src = PackSource {
+            repo: "o/r".into(),
+            web_base: "http://127.0.0.1:1".into(),
+            api_base: "http://127.0.0.1:1".into(),
+            pinned: Some("v9.9.9".into()),
+        };
         assert_eq!(src.latest_tag().await.unwrap(), "v9.9.9");
     }
 
@@ -914,58 +1088,138 @@ pub(crate) mod tests {
         let mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", good.clone())], false);
         let src = spawn_mock(mock).await;
         let d = TmpDir::new("sum");
-        install(&src, &d.0, &["mcp-legifrance".into()], &noop).await.unwrap();
+        install(&src, &d.0, &["mcp-legifrance".into()], &noop)
+            .await
+            .unwrap();
 
         // Release « altérée » : l'archive servie ne correspond plus à checksums.txt.
-        let mut tampered = mock_with(vec![("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "EVIL-BIN", None, true))], false);
+        let mut tampered = mock_with(
+            vec![(
+                "mcp-legifrance-1.2.3.zip",
+                server_zip("mcp-legifrance", "EVIL-BIN", None, true),
+            )],
+            false,
+        );
         tampered.checksums = Arc::new(format!("{}  mcp-legifrance-1.2.3.zip\n", sha256_hex(&good)));
         let src2 = spawn_mock(tampered).await;
-        let rep = install(&src2, &d.0, &["mcp-legifrance".into()], &noop).await.unwrap();
+        let rep = install(&src2, &d.0, &["mcp-legifrance".into()], &noop)
+            .await
+            .unwrap();
         assert!(!rep.servers[0].installed);
-        assert!(rep.servers[0].error.as_deref().unwrap().contains("SHA-256"), "{rep:?}");
-        let bin = d.0.join("mcp-legifrance").join(format!("bin/mcp-legifrance-{}", platform_key()));
-        assert_eq!(std::fs::read_to_string(bin).unwrap(), "OLD-BIN", "l'ancienne version n'a pas été touchée");
+        assert!(
+            rep.servers[0].error.as_deref().unwrap().contains("SHA-256"),
+            "{rep:?}"
+        );
+        let bin =
+            d.0.join("mcp-legifrance")
+                .join(format!("bin/mcp-legifrance-{}", platform_key()));
+        assert_eq!(
+            std::fs::read_to_string(bin).unwrap(),
+            "OLD-BIN",
+            "l'ancienne version n'a pas été touchée"
+        );
     }
 
     #[tokio::test]
     async fn missing_checksum_entry_or_asset_is_a_per_server_error() {
-        let mut mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "B", None, true))], false);
+        let mut mock = mock_with(
+            vec![(
+                "mcp-legifrance-1.2.3.zip",
+                server_zip("mcp-legifrance", "B", None, true),
+            )],
+            false,
+        );
         // Judilibre : ni asset ni ligne dans checksums.txt.
         mock.checksums = Arc::new(mock.checksums.as_str().to_string());
         let src = spawn_mock(mock).await;
         let d = TmpDir::new("miss");
         let rep = install(&src, &d.0, &ids(), &noop).await.unwrap();
         let by = |id: &str| rep.servers.iter().find(|s| s.id == id).unwrap();
-        assert!(by("mcp-legifrance").installed, "un échec n'empêche pas l'autre serveur");
-        assert!(!by("mcp-judilibre").installed && by("mcp-judilibre").error.as_deref().unwrap().contains("checksums.txt"));
+        assert!(
+            by("mcp-legifrance").installed,
+            "un échec n'empêche pas l'autre serveur"
+        );
+        assert!(
+            !by("mcp-judilibre").installed
+                && by("mcp-judilibre")
+                    .error
+                    .as_deref()
+                    .unwrap()
+                    .contains("checksums.txt")
+        );
     }
 
     #[tokio::test]
     async fn malicious_archives_are_refused() {
         let cases: Vec<(&str, Vec<u8>, &str)> = vec![
-            ("zip slip", zip_with_entries(&[("mcp-legifrance/manifest.json", "{}"), ("mcp-legifrance/../../evil.txt", "x")]), "dangereux"),
-            ("autre racine", zip_with_entries(&[("evil/manifest.json", "{}")]), "hors de"),
-            ("chemin absolu", zip_with_entries(&[("/etc/cron.d/x", "x")]), "dangereux"),
-            ("id du manifest trompeur", server_zip("mcp-legifrance", "B", Some("mcp-autre"), true), "id"),
-            ("binaire absent pour la plateforme", server_zip("mcp-legifrance", "B", None, false), "binaire pour"),
+            (
+                "zip slip",
+                zip_with_entries(&[
+                    ("mcp-legifrance/manifest.json", "{}"),
+                    ("mcp-legifrance/../../evil.txt", "x"),
+                ]),
+                "dangereux",
+            ),
+            (
+                "autre racine",
+                zip_with_entries(&[("evil/manifest.json", "{}")]),
+                "hors de",
+            ),
+            (
+                "chemin absolu",
+                zip_with_entries(&[("/etc/cron.d/x", "x")]),
+                "dangereux",
+            ),
+            (
+                "id du manifest trompeur",
+                server_zip("mcp-legifrance", "B", Some("mcp-autre"), true),
+                "id",
+            ),
+            (
+                "binaire absent pour la plateforme",
+                server_zip("mcp-legifrance", "B", None, false),
+                "binaire pour",
+            ),
         ];
         for (label, zip_bytes, expect) in cases {
             let mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", zip_bytes)], false);
             let src = spawn_mock(mock).await;
             let d = TmpDir::new("evil");
-            let rep = install(&src, &d.0, &["mcp-legifrance".into()], &noop).await.unwrap();
+            let rep = install(&src, &d.0, &["mcp-legifrance".into()], &noop)
+                .await
+                .unwrap();
             let s = &rep.servers[0];
             assert!(!s.installed, "{label} : doit être refusé");
-            assert!(s.error.as_deref().unwrap().contains(expect), "{label} : {:?}", s.error);
-            assert!(!d.0.join("mcp-legifrance").exists(), "{label} : rien d'installé");
-            assert!(!d.0.parent().unwrap().join("evil.txt").exists(), "{label} : rien d'écrit hors du dossier");
-            assert_eq!(installed_version(&d.0), None, "{label}: pas de version enregistrée");
+            assert!(
+                s.error.as_deref().unwrap().contains(expect),
+                "{label} : {:?}",
+                s.error
+            );
+            assert!(
+                !d.0.join("mcp-legifrance").exists(),
+                "{label} : rien d'installé"
+            );
+            assert!(
+                !d.0.parent().unwrap().join("evil.txt").exists(),
+                "{label} : rien d'écrit hors du dossier"
+            );
+            assert_eq!(
+                installed_version(&d.0),
+                None,
+                "{label}: pas de version enregistrée"
+            );
         }
     }
 
     #[tokio::test]
     async fn on_replace_is_called_before_an_existing_server_is_replaced() {
-        let mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "B", None, true))], false);
+        let mock = mock_with(
+            vec![(
+                "mcp-legifrance-1.2.3.zip",
+                server_zip("mcp-legifrance", "B", None, true),
+            )],
+            false,
+        );
         let src = spawn_mock(mock).await;
         let d = TmpDir::new("repl");
         let calls = Mutex::new(Vec::<String>::new());
@@ -977,8 +1231,14 @@ pub(crate) mod tests {
             calls.lock().unwrap().push(id.to_string());
             Box::pin(async {})
         });
-        install(&src, &d.0, &["mcp-legifrance".into()], &cb).await.unwrap();
-        assert_eq!(*calls.lock().unwrap(), ["mcp-legifrance"], "l'appelant peut arrêter le processus avant remplacement");
+        install(&src, &d.0, &["mcp-legifrance".into()], &cb)
+            .await
+            .unwrap();
+        assert_eq!(
+            *calls.lock().unwrap(),
+            ["mcp-legifrance"],
+            "l'appelant peut arrêter le processus avant remplacement"
+        );
     }
 
     #[tokio::test]
@@ -993,7 +1253,13 @@ pub(crate) mod tests {
             no_redirect: false,
         };
         let src = spawn_mock(mock).await;
-        let err = download(&client, &src.asset_url("v1.2.3", "checksums.txt"), MAX_CHECKSUMS_BYTES).await.unwrap_err();
+        let err = download(
+            &client,
+            &src.asset_url("v1.2.3", "checksums.txt"),
+            MAX_CHECKSUMS_BYTES,
+        )
+        .await
+        .unwrap_err();
         assert!(err.contains("trop volumineux"), "{err}");
         drop(d);
     }
@@ -1003,11 +1269,19 @@ pub(crate) mod tests {
         let mock = mock_with(vec![], false);
         let src = spawn_mock(mock).await;
         let st = check_update(&src, Some("1.0.0".into())).await;
-        assert_eq!((st.latest.as_deref(), st.update_available), (Some("1.2.3"), true));
+        assert_eq!(
+            (st.latest.as_deref(), st.update_available),
+            (Some("1.2.3"), true)
+        );
         let st = check_update(&src, Some("1.2.3".into())).await;
         assert!(!st.update_available);
         // Hors ligne : jamais d'erreur côté appelant, juste `latest = None` + raison.
-        let dead = PackSource { repo: "o/r".into(), web_base: "http://127.0.0.1:1".into(), api_base: "http://127.0.0.1:1".into(), pinned: None };
+        let dead = PackSource {
+            repo: "o/r".into(),
+            web_base: "http://127.0.0.1:1".into(),
+            api_base: "http://127.0.0.1:1".into(),
+            pinned: None,
+        };
         let st = check_update(&dead, None).await;
         assert!(st.latest.is_none() && !st.update_available && st.error.is_some());
     }
@@ -1017,7 +1291,10 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore = "nécessite un accès à github.com"]
     async fn real_github_release_installs_the_two_servers() {
-        let src = PackSource { pinned: Some("v0.3.1".into()), ..PackSource::default() };
+        let src = PackSource {
+            pinned: Some("v0.3.1".into()),
+            ..PackSource::default()
+        };
         let d = TmpDir::new("real");
         let rep = install(&src, &d.0, &ids(), &noop).await.unwrap();
         println!("{rep:#?}");
@@ -1026,13 +1303,27 @@ pub(crate) mod tests {
         }
         let found = discover(&d.0, &ids());
         for f in &found {
-            println!("{} — disponible sur {} : {}", f.manifest.id, platform_key(), f.available);
+            println!(
+                "{} — disponible sur {} : {}",
+                f.manifest.id,
+                platform_key(),
+                f.available
+            );
             assert!(f.available);
             assert!(resolve_bin(f).unwrap().is_file());
         }
         assert_eq!(found.len(), 2);
-        let names: Vec<_> = std::fs::read_dir(&d.0).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
-        assert!(!names.iter().any(|n| n.contains("grist") || n.contains("system") || n.contains("image")), "{names:?}");
+        let names: Vec<_> = std::fs::read_dir(&d.0)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            !names
+                .iter()
+                .any(|n| n.contains("grist") || n.contains("system") || n.contains("image")),
+            "{names:?}"
+        );
     }
 
     // ── Signature des releases (minisign) ─────────────────────────────────────
@@ -1055,7 +1346,9 @@ pub(crate) mod tests {
         use base64::Engine;
         let mut assets = HashMap::new();
         if with_zip {
-            let zip = base64::engine::general_purpose::STANDARD.decode(SIGNED_ZIP_B64).unwrap();
+            let zip = base64::engine::general_purpose::STANDARD
+                .decode(SIGNED_ZIP_B64)
+                .unwrap();
             assets.insert("mcp-legifrance-1.2.3.zip".to_string(), zip);
         }
         if let Some(s) = signature {
@@ -1092,8 +1385,12 @@ pub(crate) mod tests {
         // Format « legacy » (non pré-haché) refusé.
         assert!(verify_minisign(PUBKEY_A, data, SIG_LEGACY, "v1.2.3").is_err());
         // Entrées invalides : erreurs claires, jamais de panique.
-        assert!(verify_minisign(PUBKEY_A, data, "n'importe quoi", "v1.2.3").unwrap_err().contains("illisible"));
-        assert!(verify_minisign("pas une clé", data, SIG_OK, "v1.2.3").unwrap_err().contains("clé publique"));
+        assert!(verify_minisign(PUBKEY_A, data, "n'importe quoi", "v1.2.3")
+            .unwrap_err()
+            .contains("illisible"));
+        assert!(verify_minisign("pas une clé", data, SIG_OK, "v1.2.3")
+            .unwrap_err()
+            .contains("clé publique"));
     }
 
     #[test]
@@ -1101,7 +1398,10 @@ pub(crate) mod tests {
         assert!(version_lt("1.2.3", "1.2.4"));
         assert!(version_lt("0.9.0", "1.0.0"));
         assert!(version_lt("1.2", "1.2.1"));
-        assert!(version_lt("v1.9.0", "1.10.0"), "comparaison numérique, pas lexicale");
+        assert!(
+            version_lt("v1.9.0", "1.10.0"),
+            "comparaison numérique, pas lexicale"
+        );
         assert!(!version_lt("1.2.3", "1.2.3"));
         assert!(!version_lt("1.2.0", "1.2"), "composantes manquantes = 0");
         assert!(!version_lt("2.0.0", "1.99.99"));
@@ -1118,7 +1418,9 @@ pub(crate) mod tests {
         assert_eq!(rep.signature, SignatureStatus::Verified);
         assert!(rep.servers.iter().all(|s| s.installed), "{rep:?}");
         assert_eq!(installed_version(&d.0).as_deref(), Some("1.2.3"));
-        let bin = d.0.join("mcp-legifrance").join(format!("bin/mcp-legifrance-{}", platform_key()));
+        let bin =
+            d.0.join("mcp-legifrance")
+                .join(format!("bin/mcp-legifrance-{}", platform_key()));
         assert_eq!(std::fs::read_to_string(bin).unwrap(), "BIN-SIGNED");
     }
 
@@ -1131,7 +1433,14 @@ pub(crate) mod tests {
         let d = TmpDir::new("nosig");
         let e = install(&src, &d.0, &legifrance(), &noop).await.unwrap_err();
         assert!(e.contains("signature") && e.contains("refusée"), "{e}");
-        assert!(!requested.lock().unwrap().iter().any(|r| r.ends_with(".zip")), "aucun zip ne doit être téléchargé");
+        assert!(
+            !requested
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.ends_with(".zip")),
+            "aucun zip ne doit être téléchargé"
+        );
         assert!(installed_version(&d.0).is_none());
         assert!(!d.0.join("mcp-legifrance").exists());
     }
@@ -1147,7 +1456,11 @@ pub(crate) mod tests {
         let d = TmpDir::new("forged");
         let e = install(&src, &d.0, &legifrance(), &noop).await.unwrap_err();
         assert!(e.contains("INVALIDE"), "{e}");
-        assert!(!requested.lock().unwrap().iter().any(|r| r.ends_with(".zip")));
+        assert!(!requested
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.ends_with(".zip")));
         assert!(!d.0.join("mcp-legifrance").exists());
     }
 
@@ -1169,15 +1482,26 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn without_a_configured_key_the_checksum_only_mode_is_reported_and_no_signature_is_fetched() {
-        let mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "BIN", None, true))], false);
+    async fn without_a_configured_key_the_checksum_only_mode_is_reported_and_no_signature_is_fetched(
+    ) {
+        let mock = mock_with(
+            vec![(
+                "mcp-legifrance-1.2.3.zip",
+                server_zip("mcp-legifrance", "BIN", None, true),
+            )],
+            false,
+        );
         let requested = mock.requested.clone();
         let src = spawn_mock(mock).await;
         assert!(src.public_key.is_none());
         let d = TmpDir::new("nokey");
         let rep = install(&src, &d.0, &legifrance(), &noop).await.unwrap();
         assert_eq!(rep.signature, SignatureStatus::NotConfigured);
-        assert!(!requested.lock().unwrap().iter().any(|r| r.ends_with(".minisig")));
+        assert!(!requested
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.ends_with(".minisig")));
         let st = check_update(&src, None).await;
         assert!(!st.signature_enforced);
     }
@@ -1192,7 +1516,13 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn rolling_back_to_an_older_pack_is_refused_but_a_reinstall_is_allowed() {
-        let mock = mock_with(vec![("mcp-legifrance-1.2.3.zip", server_zip("mcp-legifrance", "BIN", None, true))], false);
+        let mock = mock_with(
+            vec![(
+                "mcp-legifrance-1.2.3.zip",
+                server_zip("mcp-legifrance", "BIN", None, true),
+            )],
+            false,
+        );
         let src = spawn_mock(mock).await;
 
         let d = TmpDir::new("rollback");
@@ -1201,7 +1531,11 @@ pub(crate) mod tests {
         let e = install(&src, &d.0, &legifrance(), &noop).await.unwrap_err();
         assert!(e.contains("retour arrière refusé"), "{e}");
         assert!(!d.0.join("mcp-legifrance").exists());
-        assert_eq!(installed_version(&d.0).as_deref(), Some("2.0.0"), "la version installée n'est pas touchée");
+        assert_eq!(
+            installed_version(&d.0).as_deref(),
+            Some("2.0.0"),
+            "la version installée n'est pas touchée"
+        );
 
         // Même version : réinstallation autorisée (réparation).
         std::fs::write(d.0.join(".pack-version"), "1.2.3").unwrap();

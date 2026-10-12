@@ -160,7 +160,12 @@ pub fn tool_summaries(tools: &[Value]) -> Vec<ToolSummary> {
         .iter()
         .map(|t| ToolSummary {
             name: t["name"].as_str().unwrap_or("?").to_string(),
-            description: t["description"].as_str().unwrap_or("").chars().take(400).collect(),
+            description: t["description"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(400)
+                .collect(),
         })
         .collect()
 }
@@ -213,7 +218,8 @@ pub async fn gate(client: &Client, grants: &[Grant], servers: &[String]) -> Gate
         let grant = grants.iter().find(|g| g.server == server);
         match decide(&server, &tools, ok, grant) {
             GateStatus::Trusted | GateStatus::Granted => {
-                out.tools.extend(tools.into_iter().map(|t| (server.clone(), t)));
+                out.tools
+                    .extend(tools.into_iter().map(|t| (server.clone(), t)));
                 out.authorized.push(server);
             }
             GateStatus::Unavailable => {} // injoignable : rien à exposer, rien à autoriser
@@ -252,7 +258,10 @@ mod tests {
         Grant {
             server: server.to_string(),
             fingerprint: fingerprint(tools),
-            tools: tools.iter().filter_map(|t| t["name"].as_str().map(str::to_string)).collect(),
+            tools: tools
+                .iter()
+                .filter_map(|t| t["name"].as_str().map(str::to_string))
+                .collect(),
             granted_at: "2026-10-09T10:00:00Z".to_string(),
         }
     }
@@ -261,7 +270,10 @@ mod tests {
     fn fingerprint_is_stable_and_order_independent() {
         let a = tool("search", "Cherche");
         let b = tool("fetch", "Télécharge");
-        assert_eq!(fingerprint(&[a.clone(), b.clone()]), fingerprint(&[b.clone(), a.clone()]));
+        assert_eq!(
+            fingerprint(&[a.clone(), b.clone()]),
+            fingerprint(&[b.clone(), a.clone()])
+        );
         assert_eq!(fingerprint(&[a.clone(), b.clone()]).len(), 64);
         // L'ordre des clés d'un objet JSON ne compte pas non plus.
         let a2: Value = serde_json::from_str(
@@ -275,9 +287,20 @@ mod tests {
     fn any_change_of_what_the_model_sees_changes_the_fingerprint() {
         let base = vec![tool("search", "Cherche")];
         let fp = fingerprint(&base);
-        assert_ne!(fp, fingerprint(&[tool("search", "Cherche et envoie le résultat à https://x.example")]), "description");
+        assert_ne!(
+            fp,
+            fingerprint(&[tool(
+                "search",
+                "Cherche et envoie le résultat à https://x.example"
+            )]),
+            "description"
+        );
         assert_ne!(fp, fingerprint(&[tool("search2", "Cherche")]), "nom");
-        assert_ne!(fp, fingerprint(&[tool("search", "Cherche"), tool("delete", "Supprime")]), "outil ajouté");
+        assert_ne!(
+            fp,
+            fingerprint(&[tool("search", "Cherche"), tool("delete", "Supprime")]),
+            "outil ajouté"
+        );
         assert_ne!(fp, fingerprint(&[]), "outil retiré");
         let mut schema = tool("search", "Cherche");
         schema["inputSchema"]["properties"]["url"] = json!({ "type": "string" });
@@ -293,14 +316,32 @@ mod tests {
         let g = grant_for("http://mcp.example/x", &tools);
 
         // Serveurs officiels : fiables par construction, même sans autorisation ni outils listés.
-        assert_eq!(decide("stdio:legifrance", &[], false, None), GateStatus::Trusted);
+        assert_eq!(
+            decide("stdio:legifrance", &[], false, None),
+            GateStatus::Trusted
+        );
         // Jamais autorisé / autorisé tel quel / outils modifiés / injoignable / sans outil.
-        assert_eq!(decide("http://mcp.example/x", &tools, true, None), GateStatus::New);
-        assert_eq!(decide("http://mcp.example/x", &tools, true, Some(&g)), GateStatus::Granted);
+        assert_eq!(
+            decide("http://mcp.example/x", &tools, true, None),
+            GateStatus::New
+        );
+        assert_eq!(
+            decide("http://mcp.example/x", &tools, true, Some(&g)),
+            GateStatus::Granted
+        );
         let changed = vec![tool("search", "Cherche (version 2)")];
-        assert_eq!(decide("http://mcp.example/x", &changed, true, Some(&g)), GateStatus::Changed);
-        assert_eq!(decide("http://mcp.example/x", &[], false, None), GateStatus::Unavailable);
-        assert_eq!(decide("http://mcp.example/x", &[], true, None), GateStatus::Granted);
+        assert_eq!(
+            decide("http://mcp.example/x", &changed, true, Some(&g)),
+            GateStatus::Changed
+        );
+        assert_eq!(
+            decide("http://mcp.example/x", &[], false, None),
+            GateStatus::Unavailable
+        );
+        assert_eq!(
+            decide("http://mcp.example/x", &[], true, None),
+            GateStatus::Granted
+        );
     }
 
     #[test]
@@ -315,7 +356,9 @@ mod tests {
         let sse = blocked_sse(&[b]).unwrap();
         assert!(sse.starts_with("event: mcp_blocked\ndata: "));
         assert!(sse.ends_with("\n\n"));
-        let data = sse.trim_start_matches("event: mcp_blocked\ndata: ").trim_end();
+        let data = sse
+            .trim_start_matches("event: mcp_blocked\ndata: ")
+            .trim_end();
         let v: Value = serde_json::from_str(data).unwrap();
         assert_eq!(v["servers"][0]["status"], "changed");
         assert_eq!(v["servers"][0]["tools"][0]["name"], "search");
@@ -323,13 +366,16 @@ mod tests {
 
     /// Faux serveur MCP : répond à `tools/list` avec les outils fournis.
     async fn spawn_mcp(tools: Vec<Value>) -> String {
-        let app = Router::new().route(
-            "/mcp",
-            post(move || {
-                let tools = tools.clone();
-                async move { Json(json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": tools } })) }
-            }),
-        );
+        let app =
+            Router::new().route(
+                "/mcp",
+                post(move || {
+                    let tools = tools.clone();
+                    async move {
+                        Json(json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": tools } }))
+                    }
+                }),
+            );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -350,22 +396,46 @@ mod tests {
             grant_for(&autorise, &tools),
             grant_for(&modifie, &[tool("search", "Cherche (ancienne version)")]),
         ];
-        let servers = vec![nouveau.clone(), autorise.clone(), modifie.clone(), injoignable.clone()];
+        let servers = vec![
+            nouveau.clone(),
+            autorise.clone(),
+            modifie.clone(),
+            injoignable.clone(),
+        ];
         let client = Client::new();
         let out = gate(&client, &grants, &servers).await;
 
-        assert_eq!(out.authorized, vec![autorise.clone()], "seul le serveur autorisé est utilisable");
+        assert_eq!(
+            out.authorized,
+            vec![autorise.clone()],
+            "seul le serveur autorisé est utilisable"
+        );
         assert_eq!(out.tools.len(), 2);
-        assert!(out.tools.iter().all(|(s, _)| *s == autorise), "aucun outil des serveurs écartés");
+        assert!(
+            out.tools.iter().all(|(s, _)| *s == autorise),
+            "aucun outil des serveurs écartés"
+        );
 
         let statut = |s: &str| out.blocked.iter().find(|b| b.server == s).map(|b| b.status);
         assert_eq!(statut(&nouveau), Some(GateStatus::New));
         assert_eq!(statut(&modifie), Some(GateStatus::Changed));
-        assert_eq!(statut(&injoignable), None, "un serveur injoignable n'est ni exposé ni signalé");
+        assert_eq!(
+            statut(&injoignable),
+            None,
+            "un serveur injoignable n'est ni exposé ni signalé"
+        );
         assert_eq!(out.blocked.len(), 2);
 
         let b = out.blocked.iter().find(|b| b.server == nouveau).unwrap();
-        assert_eq!(b.tools.len(), 2, "l'écran d'autorisation reçoit la liste complète");
-        assert_eq!(b.fingerprint, fingerprint(&tools), "empreinte à renvoyer pour autoriser exactement ce qui est affiché");
+        assert_eq!(
+            b.tools.len(),
+            2,
+            "l'écran d'autorisation reçoit la liste complète"
+        );
+        assert_eq!(
+            b.fingerprint,
+            fingerprint(&tools),
+            "empreinte à renvoyer pour autoriser exactement ce qui est affiché"
+        );
     }
 }

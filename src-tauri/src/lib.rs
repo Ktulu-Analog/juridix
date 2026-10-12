@@ -110,7 +110,9 @@ fn check_frontend_key(key: &str) -> Result<(), String> {
     if secrets::FRONTEND_ALLOWED_KEYS.contains(&key) {
         Ok(())
     } else {
-        Err(format!("clé de secret non autorisée depuis le frontend : {key}"))
+        Err(format!(
+            "clé de secret non autorisée depuis le frontend : {key}"
+        ))
     }
 }
 
@@ -154,7 +156,11 @@ async fn export_user_data(
     frontend_data: String,
     password: Option<String>,
 ) -> Result<rgpd::ExportReport, String> {
-    let tables = state.db.dump_all_tables().await.map_err(|e| format!("{e:#}"))?;
+    let tables = state
+        .db
+        .dump_all_tables()
+        .await
+        .map_err(|e| format!("{e:#}"))?;
     let prompts = std::fs::read_to_string(&state.prompts_path).ok();
     let dest = std::path::PathBuf::from(dest);
     tokio::task::spawn_blocking(move || {
@@ -182,7 +188,9 @@ async fn wipe_user_data(
     if confirmation.trim() != rgpd::WIPE_CONFIRMATION {
         return Err("confirmation invalide".to_string());
     }
-    rgpd::wipe_now(paths.inner(), &state.db).await.map_err(|e| format!("{e:#}"))
+    rgpd::wipe_now(paths.inner(), &state.db)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// Redémarre l'application (après un effacement : le second temps s'exécute au lancement).
@@ -399,8 +407,9 @@ pub fn run() {
             // volontaire ici (pas d'échec ouvert possible) : sans trousseau
             // accessible, il n'y a aucun moyen sûr de garantir que la même clé
             // sera retrouvée au prochain démarrage.
-            let db_key = secrets::get_or_create_db_key()
-                .expect("Impossible d'accéder au trousseau système pour la clé de chiffrement de la base");
+            let db_key = secrets::get_or_create_db_key().expect(
+                "Impossible d'accéder au trousseau système pour la clé de chiffrement de la base",
+            );
 
             let db = tauri::async_runtime::block_on(async {
                 Database::new(&db_path_clone, &db_key)

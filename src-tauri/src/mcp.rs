@@ -296,11 +296,19 @@ pub async fn list_tools(client: &Client, server_url: &str) -> (Vec<Value>, bool)
 
 /// Convertit un tool MCP au format OpenAI function tool.
 pub fn mcp_tool_to_openai(tool: &Value, server_url: &str) -> Value {
-    let full = format!("mcp__{}__{}", slugify(server_url), tool["name"].as_str().unwrap_or("unknown"));
+    let full = format!(
+        "mcp__{}__{}",
+        slugify(server_url),
+        tool["name"].as_str().unwrap_or("unknown")
+    );
     if full.len() > 64 {
         // Pas de filtrage (certains fournisseurs, dont Mistral, acceptent davantage) ;
         // mais l'utilisateur doit savoir pourquoi un fournisseur strict répondrait 400.
-        warn!("MCP: nom d'outil de {} caractères (> 64, limite de certains fournisseurs) : {}", full.len(), full);
+        warn!(
+            "MCP: nom d'outil de {} caractères (> 64, limite de certains fournisseurs) : {}",
+            full.len(),
+            full
+        );
     }
     json!({
         "type": "function",
@@ -329,7 +337,10 @@ pub async fn call_tool(
 ) -> McpToolResult {
     if crate::mcp_stdio::is_stdio(server_url) {
         let name = crate::mcp_stdio::server_name(server_url);
-        return match crate::mcp_stdio::HUB.call_tool(name, tool_name, arguments).await {
+        return match crate::mcp_stdio::HUB
+            .call_tool(name, tool_name, arguments)
+            .await
+        {
             Ok(result) => {
                 let mut r = extract_content(&result);
                 // `isError` : l'outil a échoué côté métier. On le dit au LLM pour
@@ -340,9 +351,15 @@ pub async fn call_tool(
                 r
             }
             Err(e) => {
-                warn!("MCP: échec d'appel du tool {} sur {} — {}", tool_name, server_url, e);
+                warn!(
+                    "MCP: échec d'appel du tool {} sur {} — {}",
+                    tool_name, server_url, e
+                );
                 McpToolResult {
-                    text: format!("Erreur : impossible d'appeler le tool {} ({})", tool_name, e),
+                    text: format!(
+                        "Erreur : impossible d'appeler le tool {} ({})",
+                        tool_name, e
+                    ),
                     image_b64: None,
                     image_mime: None,
                 }
@@ -481,10 +498,16 @@ fn slugify(url: &str) -> String {
             return clean;
         }
         // FNV-1a 32 bits sur le nom complet : stable d'une exécution à l'autre.
-        let h = name.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+        let h = name.bytes().fold(0x811c_9dc5_u32, |h, b| {
+            (h ^ b as u32).wrapping_mul(0x0100_0193)
+        });
         let head: String = clean.chars().take(10).collect();
         let head = head.trim_end_matches('_');
-        return format!("{}_{:04x}", if head.is_empty() { "s" } else { head }, h & 0xffff);
+        return format!(
+            "{}_{:04x}",
+            if head.is_empty() { "s" } else { head },
+            h & 0xffff
+        );
     }
     url.trim_start_matches("https://")
         .trim_start_matches("http://")
@@ -540,10 +563,17 @@ mod tests {
             .route(
                 "/ancien",
                 post(|| async {
-                    (StatusCode::TEMPORARY_REDIRECT, [(header::LOCATION, "/nouveau")]).into_response()
+                    (
+                        StatusCode::TEMPORARY_REDIRECT,
+                        [(header::LOCATION, "/nouveau")],
+                    )
+                        .into_response()
                 }),
             )
-            .route("/nouveau", post(|| async { Json(json!({"ok": true})).into_response() }));
+            .route(
+                "/nouveau",
+                post(|| async { Json(json!({"ok": true})).into_response() }),
+            );
         let base = spawn(app).await;
         let r = rpc_post(&Client::new(), &format!("{base}/ancien"), &json!({}), 5).await;
         assert_eq!(r, Some(json!({"ok": true})));
@@ -554,7 +584,11 @@ mod tests {
         let app = Router::new().route(
             "/boucle",
             post(|| async {
-                (StatusCode::TEMPORARY_REDIRECT, [(header::LOCATION, "/boucle")]).into_response()
+                (
+                    StatusCode::TEMPORARY_REDIRECT,
+                    [(header::LOCATION, "/boucle")],
+                )
+                    .into_response()
             }),
         );
         let base = spawn(app).await;

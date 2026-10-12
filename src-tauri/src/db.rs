@@ -114,8 +114,9 @@ impl Database {
         let rows = self
             .conn
             .call(|db| {
-                let mut stmt =
-                    db.prepare("SELECT server, fingerprint, tools, granted_at FROM mcp_grants ORDER BY server")?;
+                let mut stmt = db.prepare(
+                    "SELECT server, fingerprint, tools, granted_at FROM mcp_grants ORDER BY server",
+                )?;
                 let rows = stmt
                     .query_map([], |r| {
                         Ok((
@@ -131,12 +132,14 @@ impl Database {
             .await?;
         Ok(rows
             .into_iter()
-            .map(|(server, fingerprint, tools, granted_at)| crate::mcp_grants::Grant {
-                server,
-                fingerprint,
-                tools: serde_json::from_str(&tools).unwrap_or_default(),
-                granted_at,
-            })
+            .map(
+                |(server, fingerprint, tools, granted_at)| crate::mcp_grants::Grant {
+                    server,
+                    fingerprint,
+                    tools: serde_json::from_str(&tools).unwrap_or_default(),
+                    granted_at,
+                },
+            )
             .collect())
     }
 
@@ -167,7 +170,10 @@ impl Database {
     pub async fn delete_mcp_grant(&self, server: String) -> Result<()> {
         self.conn
             .call(move |db| {
-                db.execute("DELETE FROM mcp_grants WHERE server = ?1", rusqlite::params![server])?;
+                db.execute(
+                    "DELETE FROM mcp_grants WHERE server = ?1",
+                    rusqlite::params![server],
+                )?;
                 Ok(())
             })
             .await?;
@@ -502,7 +508,8 @@ fn migrate_plaintext_to_encrypted(path: &Path, db_key_hex: &str) -> Result<()> {
         // démarrage, avant que `tokio_rusqlite::Connection` ne prenne la main
         // sur le fichier — pas besoin (et pas souhaitable) de la faire
         // transiter par le pool async.
-        let conn = rusqlite::Connection::open(path).context("ouverture de l'ancienne base en clair")?;
+        let conn =
+            rusqlite::Connection::open(path).context("ouverture de l'ancienne base en clair")?;
         let tmp_str = tmp_path
             .to_str()
             .context("le chemin de la base contient des caractères non UTF-8")?;
@@ -573,7 +580,10 @@ mod migration_tests {
         use std::time::{SystemTime, UNIX_EPOCH};
         let d = std::env::temp_dir().join(format!(
             "juridix-db-test-{}",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -584,13 +594,17 @@ mod migration_tests {
         let dir = tmp_dir();
 
         let plain = dir.join("plain.db");
-        Connection::open(&plain).unwrap().execute("CREATE TABLE t (id INTEGER)", []).unwrap();
+        Connection::open(&plain)
+            .unwrap()
+            .execute("CREATE TABLE t (id INTEGER)", [])
+            .unwrap();
         assert!(is_plaintext_sqlite(&plain).unwrap());
 
         let enc = dir.join("enc.db");
         {
             let conn = Connection::open(&enc).unwrap();
-            conn.pragma_update(None, "key", &key_literal(&"11".repeat(32))).unwrap();
+            conn.pragma_update(None, "key", &key_literal(&"11".repeat(32)))
+                .unwrap();
             conn.execute("CREATE TABLE t (id INTEGER)", []).unwrap();
         }
         assert!(!is_plaintext_sqlite(&enc).unwrap());
@@ -624,13 +638,18 @@ mod migration_tests {
         // ...et les données migrées sont intactes avec la nouvelle clé.
         let conn = Connection::open(&path).unwrap();
         conn.pragma_update(None, "key", &key_literal(&key)).unwrap();
-        let mut stmt = conn.prepare("SELECT title FROM conversations ORDER BY id").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT title FROM conversations ORDER BY id")
+            .unwrap();
         let titles: Vec<String> = stmt
             .query_map([], |r| r.get(0))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(titles, vec!["Dossier X".to_string(), "Dossier Y".to_string()]);
+        assert_eq!(
+            titles,
+            vec!["Dossier X".to_string(), "Dossier Y".to_string()]
+        );
     }
 
     #[test]
@@ -641,15 +660,22 @@ mod migration_tests {
         {
             let conn = Connection::open(&path).unwrap();
             conn.pragma_update(None, "key", &key_literal(&key)).unwrap();
-            conn.execute_batch("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('inchangé');").unwrap();
+            conn.execute_batch("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('inchangé');")
+                .unwrap();
         }
         let before = std::fs::read(&path).unwrap();
 
         migrate_plaintext_to_encrypted(&path, &key).unwrap();
 
         let after = std::fs::read(&path).unwrap();
-        assert_eq!(before, after, "aucune ré-écriture sur une base déjà chiffrée");
-        assert!(!sibling_path(&path, ".pre-encryption.bak").exists(), "pas de sauvegarde créée inutilement");
+        assert_eq!(
+            before, after,
+            "aucune ré-écriture sur une base déjà chiffrée"
+        );
+        assert!(
+            !sibling_path(&path, ".pre-encryption.bak").exists(),
+            "pas de sauvegarde créée inutilement"
+        );
     }
 
     #[test]
@@ -657,7 +683,10 @@ mod migration_tests {
         let dir = tmp_dir();
         let path = dir.join("nouvelle.db");
         migrate_plaintext_to_encrypted(&path, &"00".repeat(32)).unwrap();
-        assert!(!path.exists(), "la migration ne doit pas créer le fichier elle-même");
+        assert!(
+            !path.exists(),
+            "la migration ne doit pas créer le fichier elle-même"
+        );
     }
 }
 
@@ -671,7 +700,10 @@ mod rgpd_db_tests {
         use std::time::{SystemTime, UNIX_EPOCH};
         let d = std::env::temp_dir().join(format!(
             "juridix-db-rgpd-{}",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -680,7 +712,9 @@ mod rgpd_db_tests {
     #[tokio::test]
     async fn dump_all_tables_then_purge_all() {
         let dir = tmp_dir();
-        let db = Database::new(&dir.join("conversations.db"), KEY).await.unwrap();
+        let db = Database::new(&dir.join("conversations.db"), KEY)
+            .await
+            .unwrap();
         db.conn()
             .call(|c| {
                 c.execute(
@@ -699,17 +733,31 @@ mod rgpd_db_tests {
 
         let dump = db.dump_all_tables().await.unwrap();
         let noms: Vec<&str> = dump.iter().map(|(n, _)| n.as_str()).collect();
-        for t in ["conversations", "collection_meta", "veilles", "veille_resultats"] {
+        for t in [
+            "conversations",
+            "collection_meta",
+            "veilles",
+            "veille_resultats",
+        ] {
             assert!(noms.contains(&t), "{t} absent de {noms:?}");
         }
         let conv = &dump.iter().find(|(n, _)| n == "conversations").unwrap().1;
         assert_eq!(conv.len(), 1);
-        assert_eq!(conv[0]["messages"][0]["content"], "Bonjour", "la colonne JSON doit être dépliée");
+        assert_eq!(
+            conv[0]["messages"][0]["content"], "Bonjour",
+            "la colonne JSON doit être dépliée"
+        );
 
         db.purge_all().await.unwrap();
         let apres = db.dump_all_tables().await.unwrap();
-        assert!(apres.iter().all(|(_, rows)| rows.is_empty()), "toutes les tables doivent être vides");
-        assert!(apres.iter().any(|(n, _)| n == "conversations"), "le schéma est conservé");
+        assert!(
+            apres.iter().all(|(_, rows)| rows.is_empty()),
+            "toutes les tables doivent être vides"
+        );
+        assert!(
+            apres.iter().any(|(n, _)| n == "conversations"),
+            "le schéma est conservé"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -717,7 +765,9 @@ mod rgpd_db_tests {
     async fn mcp_grants_roundtrip_and_replace() {
         use crate::mcp_grants::Grant;
         let dir = tmp_dir();
-        let db = Database::new(&dir.join("conversations.db"), KEY).await.unwrap();
+        let db = Database::new(&dir.join("conversations.db"), KEY)
+            .await
+            .unwrap();
         assert!(db.list_mcp_grants().await.unwrap().is_empty());
 
         let g = Grant {
@@ -730,18 +780,29 @@ mod rgpd_db_tests {
         assert_eq!(db.list_mcp_grants().await.unwrap(), vec![g.clone()]);
 
         // Réautorisation après changement des outils : remplacement, pas doublon.
-        let g2 = Grant { fingerprint: "bb".repeat(32), tools: vec!["search".into()], ..g.clone() };
+        let g2 = Grant {
+            fingerprint: "bb".repeat(32),
+            tools: vec!["search".into()],
+            ..g.clone()
+        };
         db.upsert_mcp_grant(g2.clone()).await.unwrap();
         assert_eq!(db.list_mcp_grants().await.unwrap(), vec![g2]);
 
         // Visible dans l'export RGPD, détruit par le vidage.
         let dump = db.dump_all_tables().await.unwrap();
-        assert_eq!(dump.iter().find(|(n, _)| n == "mcp_grants").map(|(_, r)| r.len()), Some(1));
+        assert_eq!(
+            dump.iter()
+                .find(|(n, _)| n == "mcp_grants")
+                .map(|(_, r)| r.len()),
+            Some(1)
+        );
         db.purge_all().await.unwrap();
         assert!(db.list_mcp_grants().await.unwrap().is_empty());
 
         db.upsert_mcp_grant(g).await.unwrap();
-        db.delete_mcp_grant("http://mcp.example/x".into()).await.unwrap();
+        db.delete_mcp_grant("http://mcp.example/x".into())
+            .await
+            .unwrap();
         db.delete_mcp_grant("absent".into()).await.unwrap(); // sans erreur
         assert!(db.list_mcp_grants().await.unwrap().is_empty());
         std::fs::remove_dir_all(&dir).ok();

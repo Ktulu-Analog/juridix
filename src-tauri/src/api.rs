@@ -418,8 +418,14 @@ pub fn build_router(db: Database, prompts_path: PathBuf) -> (Router, Arc<AppStat
         .route("/api/mcp/grants/revoke", post(mcp_grants_revoke))
         .route("/api/mcp/stdio/servers", get(mcp_stdio_servers))
         .route("/api/mcp/stdio/stop", post(mcp_stdio_stop))
-        .route("/api/mcp/stdio/tools", get(mcp_stdio_tools).post(mcp_stdio_set_tools))
-        .route("/api/mcp/stdio/pack-update", get(mcp_pack_check).post(mcp_pack_install))
+        .route(
+            "/api/mcp/stdio/tools",
+            get(mcp_stdio_tools).post(mcp_stdio_set_tools),
+        )
+        .route(
+            "/api/mcp/stdio/pack-update",
+            get(mcp_pack_check).post(mcp_pack_install),
+        )
         // Health
         .route("/health", get(health))
         // Juridique
@@ -493,8 +499,14 @@ fn build_proxy_router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/mcp/grants/revoke", post(mcp_grants_revoke))
         .route("/api/mcp/stdio/servers", get(mcp_stdio_servers))
         .route("/api/mcp/stdio/stop", post(mcp_stdio_stop))
-        .route("/api/mcp/stdio/tools", get(mcp_stdio_tools).post(mcp_stdio_set_tools))
-        .route("/api/mcp/stdio/pack-update", get(mcp_pack_check).post(mcp_pack_install))
+        .route(
+            "/api/mcp/stdio/tools",
+            get(mcp_stdio_tools).post(mcp_stdio_set_tools),
+        )
+        .route(
+            "/api/mcp/stdio/pack-update",
+            get(mcp_pack_check).post(mcp_pack_install),
+        )
         .route("/health", get(health))
         .nest("/api/juridique", juridique_router::<AppState>())
         .nest("/api/veilles", crate::veille::router())
@@ -1014,28 +1026,30 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
     // serveurs explicitement autorisés — dont les outils n'ont pas changé depuis l'autorisation —
     // sont annoncés au modèle ET exécutables. Les autres sont écartés, et l'interface en est
     // avertie (événement SSE `mcp_blocked`) sans interrompre la réponse.
-    let (authorized_servers, mcp_tools, blocked_sse): (Vec<String>, Vec<Value>, Bytes) =
-        if !req.mcp_servers.is_empty() {
-            let grants = state.db.list_mcp_grants().await.unwrap_or_default();
-            let gate = crate::mcp_grants::gate(&client, &grants, &req.mcp_servers).await;
-            for b in &gate.blocked {
-                warn!(
-                    "MCP: serveur {} non autorisé ({:?}) — ses outils ne sont pas exposés au modèle",
-                    b.server, b.status
-                );
-            }
-            let tools = gate
-                .tools
-                .iter()
-                .map(|(server, tool)| crate::mcp::mcp_tool_to_openai(tool, server))
-                .collect();
-            let sse = crate::mcp_grants::blocked_sse(&gate.blocked)
-                .map(Bytes::from)
-                .unwrap_or_default();
-            (gate.authorized, tools, sse)
-        } else {
-            (Vec::new(), Vec::new(), Bytes::new())
-        };
+    let (authorized_servers, mcp_tools, blocked_sse): (Vec<String>, Vec<Value>, Bytes) = if !req
+        .mcp_servers
+        .is_empty()
+    {
+        let grants = state.db.list_mcp_grants().await.unwrap_or_default();
+        let gate = crate::mcp_grants::gate(&client, &grants, &req.mcp_servers).await;
+        for b in &gate.blocked {
+            warn!(
+                "MCP: serveur {} non autorisé ({:?}) — ses outils ne sont pas exposés au modèle",
+                b.server, b.status
+            );
+        }
+        let tools = gate
+            .tools
+            .iter()
+            .map(|(server, tool)| crate::mcp::mcp_tool_to_openai(tool, server))
+            .collect();
+        let sse = crate::mcp_grants::blocked_sse(&gate.blocked)
+            .map(Bytes::from)
+            .unwrap_or_default();
+        (gate.authorized, tools, sse)
+    } else {
+        (Vec::new(), Vec::new(), Bytes::new())
+    };
 
     // Ajouter l'instruction MCP image si des serveurs MCP autorisés sont disponibles
     if !authorized_servers.is_empty() {
@@ -1059,11 +1073,17 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
             .build()
             .unwrap_or_default();
 
-        let mut pending_sse_events: Vec<bytes::Bytes> =
-            if blocked_sse.is_empty() { Vec::new() } else { vec![blocked_sse.clone()] };
+        let mut pending_sse_events: Vec<bytes::Bytes> = if blocked_sse.is_empty() {
+            Vec::new()
+        } else {
+            vec![blocked_sse.clone()]
+        };
         // Provenance : extraits RAG + résultats d'outils de ce tour (cf. grounding_sse).
         let mut grounding: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        add_grounding(&mut grounding, rag_chunks_used.iter().map(|c| c.text.as_str()));
+        add_grounding(
+            &mut grounding,
+            rag_chunks_used.iter().map(|c| c.text.as_str()),
+        );
         for turn in 0..max_turns {
             let loop_payload = json!({
                 "model":      req.model,
@@ -1316,7 +1336,10 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
             );
             // Provenance des citations : clés des extraits RAG fournis au modèle.
             let mut grounding = std::collections::BTreeSet::new();
-            add_grounding(&mut grounding, rag_chunks_used.iter().map(|c| c.text.as_str()));
+            add_grounding(
+                &mut grounding,
+                rag_chunks_used.iter().map(|c| c.text.as_str()),
+            );
             if let Some(g) = grounding_sse(&grounding) {
                 event.push_str(&g);
             }
@@ -1401,7 +1424,10 @@ fn mcp_error(status: StatusCode, msg: impl Into<String>) -> Response {
 pub(crate) async fn mcp_stdio_servers() -> Response {
     let hub = &crate::mcp_stdio::HUB;
     let Some(dir) = hub.dir() else {
-        return mcp_error(StatusCode::SERVICE_UNAVAILABLE, "dossier des serveurs MCP non initialisé");
+        return mcp_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "dossier des serveurs MCP non initialisé",
+        );
     };
     Json(json!({
         "platform": crate::mcp_pack::platform_key(),
@@ -1414,7 +1440,9 @@ pub(crate) async fn mcp_stdio_servers() -> Response {
 /// GET /api/mcp/stdio/pack-update — une version plus récente du pack existe-t-elle ?
 /// Ne renvoie jamais d'erreur HTTP : hors ligne, `latest` vaut `null` et `error` explique pourquoi.
 async fn mcp_pack_check() -> Response {
-    let installed = crate::mcp_stdio::HUB.dir().and_then(|d| crate::mcp_pack::installed_version(&d));
+    let installed = crate::mcp_stdio::HUB
+        .dir()
+        .and_then(|d| crate::mcp_pack::installed_version(&d));
     Json(crate::mcp_pack::check_update(&crate::mcp_pack::PackSource::default(), installed).await)
         .into_response()
 }
@@ -1428,7 +1456,10 @@ static MCP_INSTALL_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
 async fn mcp_pack_install() -> Response {
     let hub = &crate::mcp_stdio::HUB;
     let Some(dir) = hub.dir() else {
-        return mcp_error(StatusCode::SERVICE_UNAVAILABLE, "dossier des serveurs MCP non initialisé");
+        return mcp_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "dossier des serveurs MCP non initialisé",
+        );
     };
     let Ok(_guard) = MCP_INSTALL_LOCK.try_lock() else {
         return mcp_error(StatusCode::CONFLICT, "une installation est déjà en cours");
@@ -1464,7 +1495,9 @@ pub(crate) struct McpToolsQuery {
 
 /// GET /api/mcp/stdio/tools?id=mcp-legifrance — catalogue complet du serveur (il est lancé si
 /// besoin) : chaque outil avec son coût en jetons et son état exposé / non exposé.
-pub(crate) async fn mcp_stdio_tools(axum::extract::Query(q): axum::extract::Query<McpToolsQuery>) -> Response {
+pub(crate) async fn mcp_stdio_tools(
+    axum::extract::Query(q): axum::extract::Query<McpToolsQuery>,
+) -> Response {
     match crate::mcp_stdio::HUB.catalog(&q.id).await {
         Ok(c) => Json(c).into_response(),
         Err(e) => mcp_error(StatusCode::BAD_GATEWAY, e),
@@ -1486,7 +1519,9 @@ pub(crate) async fn mcp_stdio_set_tools(Json(req): Json<McpSelectionRequest>) ->
         Ok(()) => match hub.catalog(&req.id).await {
             Ok(c) => Json(c).into_response(),
             // Sélection enregistrée mais serveur injoignable (identifiants ?) : on le dit sans échouer.
-            Err(_) => Json(json!({ "ok": true, "selection": hub.selection(&req.id) })).into_response(),
+            Err(_) => {
+                Json(json!({ "ok": true, "selection": hub.selection(&req.id) })).into_response()
+            }
         },
         Err(e) => mcp_error(StatusCode::BAD_REQUEST, e),
     }
@@ -1559,7 +1594,10 @@ async fn mcp_grants_list(State(state): State<Arc<AppState>>) -> Response {
 }
 
 /// POST /api/mcp/grants/inspect — outils actuels d'un serveur et son statut d'autorisation.
-async fn mcp_grants_inspect(State(state): State<Arc<AppState>>, Json(req): Json<GrantServerRequest>) -> Response {
+async fn mcp_grants_inspect(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<GrantServerRequest>,
+) -> Response {
     let (tools, reachable) = crate::mcp::list_tools(&mcp_http_client(), &req.server).await;
     let grants = state.db.list_mcp_grants().await.unwrap_or_default();
     let grant = grants.iter().find(|g| g.server == req.server);
@@ -1577,16 +1615,28 @@ async fn mcp_grants_inspect(State(state): State<Arc<AppState>>, Json(req): Json<
 
 /// PUT /api/mcp/grants — autorise un serveur (tous ses outils). L'empreinte examinée est
 /// revérifiée : on n'autorise que ce que l'utilisateur a vu, pas ce que le serveur expose maintenant.
-async fn mcp_grants_put(State(state): State<Arc<AppState>>, Json(req): Json<GrantPutRequest>) -> Response {
+async fn mcp_grants_put(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<GrantPutRequest>,
+) -> Response {
     if crate::mcp_grants::is_trusted_by_design(&req.server) {
-        return mcp_error(StatusCode::BAD_REQUEST, "serveur officiel : aucune autorisation requise");
+        return mcp_error(
+            StatusCode::BAD_REQUEST,
+            "serveur officiel : aucune autorisation requise",
+        );
     }
     let (tools, reachable) = crate::mcp::list_tools(&mcp_http_client(), &req.server).await;
     if !reachable {
-        return mcp_error(StatusCode::BAD_GATEWAY, "serveur injoignable : impossible d'examiner ses outils");
+        return mcp_error(
+            StatusCode::BAD_GATEWAY,
+            "serveur injoignable : impossible d'examiner ses outils",
+        );
     }
     if tools.is_empty() {
-        return mcp_error(StatusCode::BAD_REQUEST, "ce serveur n'expose aucun outil : rien à autoriser");
+        return mcp_error(
+            StatusCode::BAD_REQUEST,
+            "ce serveur n'expose aucun outil : rien à autoriser",
+        );
     }
     if crate::mcp_grants::fingerprint(&tools) != req.fingerprint {
         return mcp_error(
@@ -1597,12 +1647,19 @@ async fn mcp_grants_put(State(state): State<Arc<AppState>>, Json(req): Json<Gran
     let grant = crate::mcp_grants::Grant {
         server: req.server,
         fingerprint: req.fingerprint,
-        tools: tools.iter().filter_map(|t| t["name"].as_str().map(str::to_string)).collect(),
+        tools: tools
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_string))
+            .collect(),
         granted_at: chrono::Utc::now().to_rfc3339(),
     };
     match state.db.upsert_mcp_grant(grant.clone()).await {
         Ok(()) => {
-            info!("MCP: serveur {} autorisé ({} outils)", grant.server, grant.tools.len());
+            info!(
+                "MCP: serveur {} autorisé ({} outils)",
+                grant.server,
+                grant.tools.len()
+            );
             Json(json!({ "grant": grant })).into_response()
         }
         Err(e) => mcp_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
@@ -1610,7 +1667,10 @@ async fn mcp_grants_put(State(state): State<Arc<AppState>>, Json(req): Json<Gran
 }
 
 /// POST /api/mcp/grants/revoke — retire l'autorisation d'un serveur.
-async fn mcp_grants_revoke(State(state): State<Arc<AppState>>, Json(req): Json<GrantServerRequest>) -> Response {
+async fn mcp_grants_revoke(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<GrantServerRequest>,
+) -> Response {
     match state.db.delete_mcp_grant(req.server.clone()).await {
         Ok(()) => {
             info!("MCP: autorisation du serveur {} retirée", req.server);
