@@ -17,6 +17,10 @@ use tracing::{debug, info, warn};
 // ── Constantes PISTE ──────────────────────────────────────────────────────────
 
 const TOKEN_URL: &str = "https://oauth.piste.gouv.fr/api/oauth/token";
+/// Base de l'API Légifrance (utilisée par legifrance.rs via `legifrance_base()`).
+pub(crate) const LEGIFRANCE_BASE: &str = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
+/// Base de l'API Judilibre (utilisée par judilibre.rs via `judilibre_base()`).
+pub(crate) const JUDILIBRE_BASE: &str = "https://api.piste.gouv.fr/cassation/judilibre/v1.0";
 /// On renouvelle 60 s avant expiration pour avoir une marge confortable.
 const REFRESH_MARGIN_SECS: i64 = 60;
 
@@ -56,6 +60,13 @@ struct PisteClientInner {
     client_id: String,
     client_secret: String,
     token: RwLock<Option<Token>>,
+    /// URL OAuth2 — toujours `TOKEN_URL` en production, surchargée uniquement
+    /// par `new_for_test` (mock Légifrance local dans les tests).
+    token_url: String,
+    /// Base Légifrance — `None` en production (= `LEGIFRANCE_BASE`).
+    legifrance_base: Option<String>,
+    /// Base Judilibre — `None` en production (= `JUDILIBRE_BASE`).
+    judilibre_base: Option<String>,
 }
 
 impl PisteClient {
@@ -78,8 +89,44 @@ impl PisteClient {
                 client_id,
                 client_secret,
                 token: RwLock::new(None),
+                token_url: TOKEN_URL.to_string(),
+                legifrance_base: None,
+                judilibre_base: None,
             }),
         })
+    }
+
+    /// Base de l'API Judilibre à utiliser pour ce client.
+    pub(crate) fn judilibre_base(&self) -> &str {
+        self.inner
+            .judilibre_base
+            .as_deref()
+            .unwrap_or(JUDILIBRE_BASE)
+    }
+
+    /// Base de l'API Légifrance à utiliser pour ce client.
+    pub(crate) fn legifrance_base(&self) -> &str {
+        self.inner
+            .legifrance_base
+            .as_deref()
+            .unwrap_or(LEGIFRANCE_BASE)
+    }
+
+    /// Client pointant vers un serveur mock local (tests d'intégration) :
+    /// `<base>/oauth/token` pour le token, `<base>/legifrance` et `<base>/judilibre` pour les API.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(base: &str) -> Self {
+        Self {
+            inner: Arc::new(PisteClientInner {
+                http: Client::new(),
+                client_id: "test-id".into(),
+                client_secret: "test-secret".into(),
+                token: RwLock::new(None),
+                token_url: format!("{base}/oauth/token"),
+                legifrance_base: Some(format!("{base}/legifrance")),
+                judilibre_base: Some(format!("{base}/judilibre")),
+            }),
+        }
     }
 
     /// Retourne un token valide, en obtenant ou renouvelant si nécessaire.
@@ -116,7 +163,7 @@ impl PisteClient {
         let resp = self
             .inner
             .http
-            .post(TOKEN_URL)
+            .post(&self.inner.token_url)
             .form(&[
                 ("grant_type", "client_credentials"),
                 ("client_id", &self.inner.client_id),

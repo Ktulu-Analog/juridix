@@ -1,5 +1,18 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Hook useDocumentViewer
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Espace "Recherche juridique" — Hook useDocumentViewer
 // ============================================================================
 // État et logique de la visionneuse de document : ouverture d'un document
 // (openDocument, routée par fond/source vers le bon endpoint backend), pile
@@ -7,32 +20,12 @@
 // (scroll-spy), timeline des versions légales, prévisualisation au survol
 // des liens de citation, et export Markdown.
 //
-// Dépendance externe passée en paramètres — c'est le point de couplage avec
-// la recherche documenté dans le plan de refactor initial : `openDocument`
-// a besoin de `fond`/`source` (état courant du FORMULAIRE de recherche, pas
-// resultsFond/resultsSource) comme repli pour la navigation par citation,
-// indépendante d'une recherche (ex. clic sur un lien dans un document déjà
-// ouvert). Les clics depuis la liste de résultats passent explicitement
-// resultsFond/resultsSource en arguments d'appel (overrideFond/overrideSource)
-// depuis le JSX de JuridiquePanel.tsx — ce hook n'a donc besoin de rien
-// connaître de useJuridiqueSearch au-delà de ces deux valeurs.
-//
-// viewedDoc/setViewedDoc/docStack/setDocStack/docError/setDocError sont
-// également nécessaires à useFavorites/useDossiers (déjà instanciés avec ces
-// valeurs en paramètres) : useDocumentViewer doit donc être appelé AVANT eux
-// dans le composant. viewerContentRef est de même exposée pour être transmise
-// à useAnnotations (scroll-vers-annotation dans le même conteneur que le
-// scroll-spy de la TOC).
-//
-// Extrait de JuridiquePanel.tsx (étape 5 du refactor — cf. discussion du
-// 05/07/2026).
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 import { useState, useCallback, useRef, useEffect, type MouseEvent as ReactMouseEvent } from 'react';
 import { API_BASE } from '../../../constants';
 import {
-  isTextId, stripHtml, resolveInlineCitations, countCitableArticleIds, DEFAULT_MAX_INLINE_CITATIONS,
+  isTextId, stripHtml, htmlToPlainBlocks, resolveInlineCitations, countCitableArticleIds, DEFAULT_MAX_INLINE_CITATIONS,
 } from '../content/html-helpers';
 import { extractTextContent } from '../content';
 import { extractArticleInlineText } from '../content/extract-loda';
@@ -42,7 +35,7 @@ import type {
 } from '../types';
 
 // Mapping fond → endpoint backend pour les fonds spéciaux (listes)
-function fondToEndpointInfo(fond: Fond, id: string, idIsTextId: boolean): { endpoint: string; type: DocType } {
+export function fondToEndpointInfo(fond: Fond, id: string, idIsTextId: boolean): { endpoint: string; type: DocType } {
   const base = `${API_BASE}/api/juridique`;
   switch (fond) {
     case 'CODE_DATE':
@@ -80,11 +73,6 @@ function fondToEndpointInfo(fond: Fond, id: string, idIsTextId: boolean): { endp
     case 'ACCO':
       return { endpoint: `${base}/acco/${encodeURIComponent(id)}`, type: 'acco' };
 
-    // NB : ces 3 branches (BOCC / QUESTION_ECRITE / DOC_ADMIN) ne sont plus
-    // atteintes par `openDocument`, qui ouvre désormais ces fonds directement
-    // depuis l'objet résultat déjà en mémoire — l'API officielle n'expose
-    // aucun endpoint de consultation à l'unité pour eux (voir le commentaire
-    // dans `openDocument`). Conservées ici par défense uniquement.
     case 'BOCC':
       return { endpoint: `${base}/bocc-texts-list`, type: 'bocc' };
 
@@ -188,15 +176,7 @@ export function useDocumentViewer(fond: Fond, source: Source) {
     setDocError(null);
   }, []);
 
-  // ── Résolution inline des citations d'article (cf. resolveInlineCitations
-  // dans html-helpers.ts) : va chercher le texte de chaque article cité pour
-  // l'insérer directement dans le document affiché, plutôt que de dépendre
-  // d'un survol de souris — le texte doit être présent dans le HTML dès le
-  // rendu pour qu'un LLM (bouton « Analyser avec l'IA », export de dossier…)
-  // puisse le voir. Cache en mémoire (Map, durée de vie du composant) pour
-  // éviter de re-fetcher un même article cité plusieurs fois dans la même
-  // session — les renvois vers un article socle (ex. l'article 5 modifié par
-  // plusieurs décrets successifs) reviennent souvent d'un document à l'autre.
+  // ── Résolution inline des citations d'article
   const inlineArticleCache = useRef<Map<string, string | null>>(new Map());
   const fetchArticleHtml = useCallback(async (id: string): Promise<string | null> => {
     const cache = inlineArticleCache.current;
@@ -218,48 +198,13 @@ export function useDocumentViewer(fond: Fond, source: Source) {
   const openDocument = useCallback(async (
     result: SearchResult,
     resetStack = false,
-    // Fond/source à utiliser pour router l'ouverture de CE document. Par
-    // défaut, on retombe sur le fond/source *courants* (utile pour la
-    // navigation par lien de citation, indépendante d'une recherche). Les
-    // clics depuis la liste de résultats passent explicitement
-    // resultsFond/resultsSource pour garantir que le document ouvert
-    // corresponde bien au fond qui a produit ce résultat, même si le
-    // filtre a changé depuis la recherche.
+    // Fond/source à utiliser pour router l'ouverture de ce document.
     overrideFond?: Fond,
     overrideSource?: Source,
   ) => {
-    // Fond/source effectifs pour CETTE ouverture : priorité aux valeurs
-    // explicitement fournies par l'appelant (liste de résultats), sinon
-    // repli sur le filtre courant (navigation par lien de citation).
-    //
-    // ATTENTION : pour la navigation par lien de citation (pas d'override),
-    // ce repli sur `source` — le filtre du FORMULAIRE de recherche — est
-    // incorrect dès que le document actuellement ouvert n'est pas dans le
-    // même fond que ce filtre (ex. une décision JUDILIBRE ouverte pendant
-    // que l'onglet de recherche est resté sur « Légifrance » : cas courant
-    // depuis que le panneau de résultats et la visionneuse sont
-    // indépendants). Un id JUDILIBRE (hash Mongo, 24 caractères hex) ne
-    // correspond à aucun préfixe Légifrance connu de `fondToEndpointInfo` :
-    // sans détection par motif, la requête part vers `/article/{id}` et
-    // échoue silencieusement. On détecte donc `judilibre` par la FORME de
-    // l'id quand aucune source n'est explicitement fournie — c'est
-    // exactement le motif déjà utilisé par `resolvePreviewEndpoint` pour la
-    // bulle de prévisualisation au survol, qui elle ne souffre pas de ce bug
-    // car elle ne dépend jamais de `source`/`fond`.
+
     const isLikelyJudilibreId = /^[0-9a-f]{24}$/i.test(result.id || '');
-    // Même bug que celui corrigé côté Judilibre ci-dessus, mais entre fonds
-    // Légifrance eux-mêmes : `fondToEndpointInfo` route CODE_*/LODA_*/JORF
-    // par le FILTRE de recherche courant plutôt que par la forme de l'id
-    // pour les textes (ex. LODA_ETAT + clic sur un lien vers un JORFTEXT
-    // route à tort vers /loda/ au lieu de /jorf-part/, /consult/legiPart
-    // n'étant pas fait pour un id JORFTEXT). Ça ne posait pas de problème
-    // tant qu'aucun lien de citation ne traversait les fonds — exactement
-    // ce que A2 introduit avec `LienModification.textCid`
-    // (LienModification pointe vers le texte modificateur, qui peut être un
-    // JORFTEXT même depuis un article LODA/CODE). Repli sur le routage par
-    // préfixe d'id (comme `resolvePreviewEndpoint`, déjà immunisé) dès qu'il
-    // n'y a pas d'override explicite, càd dès qu'on est en navigation par
-    // citation plutôt qu'en clic depuis la liste de résultats.
+
     const effFond = overrideFond ?? (['CODE_DATE', 'CODE_ETAT', 'LODA_DATE', 'LODA_ETAT', 'JORF'].includes(fond) ? 'ALL' : fond);
     const effSource = overrideSource ?? (isLikelyJudilibreId ? 'judilibre' : source);
     if (resetStack) {
@@ -283,11 +228,7 @@ export function useDocumentViewer(fond: Fond, source: Source) {
         : (result._versionCid ? (result.id || '') : extractResultId(result, isCodeFond));
       if (!id) throw new Error('Identifiant introuvable');
 
-      // Lien de version d'article (cf. renderArticleVersionsBlock) : on
-      // route directement vers l'endpoint dédié /article-version/:cid/:id
-      // plutôt que par le routage habituel par fond, car /consult/
-      // getArticle ne renvoie pas fiablement le contenu d'une version
-      // historique précise.
+      // Lien de version d'article
       if (result._versionCid) {
         const endpoint = `${API_BASE}/api/juridique/article-version/${encodeURIComponent(result._versionCid)}/${encodeURIComponent(id)}`;
         const res = await fetch(endpoint);
@@ -299,12 +240,10 @@ export function useDocumentViewer(fond: Fond, source: Source) {
         if (raw.error) throw new Error(raw.error);
         const titre = extractTitle(result, effSource);
         const rawContent = extractTextContent(raw, 'article', titre);
-        // Résolution inline des citations (cf. commentaire sur
-        // fetchArticleHtml) — insère le texte des articles cités
-        // directement dans le HTML avant de dériver contenuLlm.
+        // Résolution inline des citations
         const totalInlineArticles = countCitableArticleIds(rawContent.body);
         const content = { ...rawContent, body: await resolveInlineCitations(rawContent.body, fetchArticleHtml) };
-        const contenuLlm = stripHtml(content.body);
+        const contenuLlm = htmlToPlainBlocks(content.body);
         setViewedDoc({
           id, titre, content, contenu: contenuLlm, source: effSource, type: 'article', raw,
           rawBody: totalInlineArticles > 0 ? rawContent.body : undefined,
@@ -315,31 +254,11 @@ export function useDocumentViewer(fond: Fond, source: Source) {
         return;
       }
 
-      // BOCC / QUESTION_ECRITE / DOC_ADMIN : l'API officielle n'expose AUCUN
-      // endpoint de consultation à l'unité pour ces 3 fonds (confirmé par le
-      // swagger : ni `/consult/*` ni paramètre `id` sur leurs `/list/*`).
-      // L'objet résultat, déjà récupéré et normalisé lors de la recherche,
-      // contient déjà l'intégralité des champs disponibles (titre, dates,
-      // chemin du PDF...) : on l'ouvre directement, sans appel réseau
-      // superflu — et surtout sans rappeler par erreur l'endpoint de liste
-      // (ce qui produisait auparavant la liste entière au lieu du document).
-      //
-      // DEBAT : contournement temporaire. `/consult/debat` existe bel et
-      // bien sur le papier (swagger), mais PISTE renvoie en pratique une
-      // 400 "Le nombre de résultat retourné par le moteur de recherche
-      // n'est pas égal à 1" pour une partie des `id` renvoyés par
-      // `/list/debatsParlementaires` — désynchronisation entre l'index de
-      // liste et l'index de consultation côté DILA, hors de notre contrôle.
-      // L'objet résultat de liste contient déjà tout ce qu'on affiche
-      // (métadonnées + lien PDF via attachmentUrl/pathToFile, cf.
-      // extractTextContent) : on l'ouvre directement, comme pour les 3
-      // fonds ci-dessus, et on évite l'appel `/consult/debat` en attendant
-      // un correctif DILA. À retirer si/quand PISTE corrige l'index.
       if (effSource === 'legifrance' && (effFond === 'BOCC' || effFond === 'QUESTION_ECRITE' || effFond === 'DOC_ADMIN' || effFond === 'DEBAT')) {
         const type: ViewedDoc['type'] = effFond === 'BOCC' ? 'bocc' : effFond === 'QUESTION_ECRITE' ? 'question_ecrite' : effFond === 'DEBAT' ? 'debat' : 'doc_admin';
         const titre = extractTitle(result, effSource);
         const content = extractTextContent(result, type, titre);
-        const contenuLlm = stripHtml(content.body);
+        const contenuLlm = htmlToPlainBlocks(content.body);
         setViewedDoc({ id, titre, content, contenu: contenuLlm, source: effSource, type, raw: result });
         setLoadingDoc(false);
         return;
@@ -368,25 +287,17 @@ export function useDocumentViewer(fond: Fond, source: Source) {
 
       const titre = extractTitle(result, effSource);
       const rawContent = extractTextContent(raw, type, titre);
-      // Résolution inline des citations (cf. fetchArticleHtml ci-dessus) —
-      // no-op immédiat si le HTML ne contient aucun data-cite-id (c'est le
-      // cas des décisions Judilibre, en format 'markdown').
+      // Résolution inline des citations
       const totalInlineArticles = countCitableArticleIds(rawContent.body);
       const content = { ...rawContent, body: await resolveInlineCitations(rawContent.body, fetchArticleHtml) };
       // Texte brut pour LLM = HTML strippé
-      const contenuLlm = stripHtml(content.body);
+      const contenuLlm = htmlToPlainBlocks(content.body);
 
       setViewedDoc({
         id, titre, content, contenu: contenuLlm, source: effSource, type, raw,
         rawBody: totalInlineArticles > 0 ? rawContent.body : undefined,
         totalInlineArticles,
         allArticlesLoaded: totalInlineArticles <= DEFAULT_MAX_INLINE_CITATIONS,
-        // A4 — le champ est présent à la fois sur `raw` (réponse de
-        // consultation du texte, ConsultTextResponse/ConsultJorfResponse) ET
-        // sur le SearchResult ayant servi à l'ouvrir (cf. swagger officiel
-        // Légifrance v2.4.2) — on privilégie `raw` (plus à jour / présent
-        // même hors recherche, ex. citation directe), repli sur le résultat
-        // de recherche sinon.
         dossiersLegislatifs: (raw as { dossiersLegislatifs?: DossierLegislatifRef[] })?.dossiersLegislatifs
           ?? result.dossiersLegislatifs,
       });
@@ -397,14 +308,6 @@ export function useDocumentViewer(fond: Fond, source: Source) {
     }
   }, [source, fond, fetchArticleHtml]);
 
-  // ── A4 : ouverture d'un dossier législatif ──────────────────────────────────
-  // Contrairement à `openDocument`, pas de routage par fond : l'appelant
-  // (carte de résultat LODA/JORF ou bouton dans l'en-tête de la visionneuse,
-  // cf. JuridiquePanel.tsx) fournit directement l'id `JORFDOLE…` extrait de
-  // `SearchResult.dossiersLegislatifs`/`ViewedDoc.dossiersLegislatifs`.
-  // Endpoint déjà exposé côté backend (GET /dossier/:id, cf.
-  // routes.rs::get_dossier) — cf. réserves sur le schéma de réponse dans
-  // content/extract-dossier-legislatif.ts.
   const openDossierLegislatif = useCallback(async (id: string, title?: string) => {
     setViewedDoc((current) => {
       if (current) setDocStack((prev) => [...prev, current]);
@@ -422,7 +325,7 @@ export function useDocumentViewer(fond: Fond, source: Source) {
       if (raw.error) throw new Error(raw.error);
       const titre = title || 'Dossier législatif';
       const content = extractTextContent(raw, 'dossier_legislatif', titre);
-      const contenuLlm = stripHtml(content.body);
+      const contenuLlm = htmlToPlainBlocks(content.body);
       setViewedDoc({
         id, titre, content, contenu: contenuLlm, source: 'legifrance', type: 'dossier_legislatif', raw,
       });
@@ -445,29 +348,10 @@ export function useDocumentViewer(fond: Fond, source: Source) {
   const viewerContentRef = useRef<HTMLDivElement>(null);
   const [tocTree, setTocTree] = useState<TocTreeNode[]>([]);
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
-  // Nœuds actuellement dépliés dans la sidebar (id de section). Purement
-  // affichage : ne modifie jamais le contenu déjà entièrement rendu dans la
-  // visionneuse (tout le texte du code/texte est présent dans le DOM dès
-  // l'ouverture — seul le PLAN de navigation se replie/déplie).
   const [expandedTocIds, setExpandedTocIds] = useState<Set<string>>(new Set());
   const tocObserverRef = useRef<IntersectionObserver | null>(null);
-  // id de nœud → id de son parent direct, reconstruit à chaque build de
-  // l'arbre — permet de remonter la chaîne d'ancêtres à déplier quand le
-  // scroll-spy active un nœud profondément imbriqué (cf. revealTocPath).
   const tocParentRef = useRef<Map<string, string>>(new Map());
-  // ids observés par le scroll-spy : uniquement les SECTIONS (Livre/Titre/
-  // Chapitre/Section), jamais les articles pris individuellement — un gros
-  // code (Code civil, Code du travail…) compte plusieurs milliers d'articles,
-  // les observer tous alourdirait l'IntersectionObserver pour un gain nul
-  // (la granularité "section courante" suffit à la lecture). La navigation
-  // vers un article précis reste possible via un clic dans le plan déplié
-  // (scrollToTocEntry fonctionne pour n'importe quel id, observé ou non).
   const tocSectionIdsRef = useRef<string[]>([]);
-
-  /** Ajoute à l'ensemble des nœuds dépliés toute la chaîne d'ancêtres d'un id
-   *  donné, pour que la sidebar révèle automatiquement la position de lecture
-   *  courante (comportement Dalloz) — sans jamais replier ce que l'utilisateur
-   *  a déjà ouvert manuellement (on ajoute, on ne retire jamais ici). */
   const revealTocPath = useCallback((id: string) => {
     setExpandedTocIds((prev) => {
       let current = tocParentRef.current.get(id);
@@ -482,14 +366,7 @@ export function useDocumentViewer(fond: Fond, source: Source) {
     });
   }, []);
 
-  // Construction récursive de l'arbre à partir du DOM rendu : chaque
-  // `<section class="jur-section">` produit par renderSections (id stable
-  // désormais assigné côté rendu, cf. content/html-helpers.ts) devient un
-  // nœud, ses enfants directs `<article class="jur-article">` et `<section>`
-  // imbriquées sont parcourus récursivement — la profondeur réelle du texte
-  // (Livre > Titre > Chapitre > Section > Article) est ainsi préservée,
-  // contrairement à l'ancien scan à plat qui aplatissait tout en un seul
-  // niveau indistinct dès que la profondeur dépassait le titre du document.
+
   const buildTocTree = useCallback((root: HTMLElement, level: number, parentId: string | null): TocTreeNode[] => {
     const nodes: TocTreeNode[] = [];
     Array.from(root.children).forEach((child) => {
@@ -523,8 +400,6 @@ export function useDocumentViewer(fond: Fond, source: Source) {
       return;
     }
 
-    // Le HTML est injecté via dangerouslySetInnerHTML — on laisse le DOM se
-    // peindre avant de scanner (sinon querySelectorAll renvoie l'ancien arbre).
     const raf = requestAnimationFrame(() => {
       tocParentRef.current = new Map();
       tocSectionIdsRef.current = [];
@@ -532,10 +407,7 @@ export function useDocumentViewer(fond: Fond, source: Source) {
 
       let tree: TocTreeNode[] = [];
       if (body) {
-        // Titre principal du document : conservé comme premier repère du
-        // plan (comme avant), mais SANS devenir le parent du reste de
-        // l'arbre — la hiérarchie réelle (Livre, Titre…) démarre elle aussi
-        // au niveau 0 juste en dessous.
+        // Titre principal du document
         const h1 = body.querySelector<HTMLElement>(':scope > .jur-doc-h1');
         if (h1) {
           if (!h1.id) h1.id = 'jur-toc-doc-title';
@@ -544,10 +416,6 @@ export function useDocumentViewer(fond: Fond, source: Source) {
         tree = tree.concat(buildTocTree(body, 0, null));
       }
 
-      // Repli : documents sans structure sections/articles imbriquée (ex.
-      // décisions Judilibre, qui utilisent des zones à plat `.jur-zone-title`
-      // plutôt que renderSections) — liste plate à un seul niveau, comme
-      // avant le passage au plan arborescent ci-dessus.
       if (tree.length <= 1 && body) {
         const flatHeadings = Array.from(body.querySelectorAll<HTMLElement>('.jur-zone-title'));
         const seenIds = new Set<string>();
@@ -595,10 +463,6 @@ export function useDocumentViewer(fond: Fond, source: Source) {
     });
   }, []);
 
-  // Scroll-spy : observe les sections (cf. tocSectionIdsRef) et active celle
-  // la plus proche du haut du viewport de lecture (signature Doctrine : le
-  // plan suit la lecture sans action de l'utilisateur), en révélant
-  // automatiquement son chemin dans la sidebar.
   useEffect(() => {
     const container = viewerContentRef.current;
     if (!container || tocSectionIdsRef.current.length === 0) return;
@@ -618,8 +482,6 @@ export function useDocumentViewer(fond: Fond, source: Source) {
       },
       {
         root: container,
-        // Fenêtre d'activation resserrée en haut du viewer pour un scroll-spy
-        // précis, façon "ligne de lecture" plutôt que "élément visible".
         rootMargin: '0px 0px -75% 0px',
         threshold: 0,
       }
@@ -693,10 +555,8 @@ export function useDocumentViewer(fond: Fond, source: Source) {
       });
       const data = await res.json();
 
-      // ── Normalisation de la réponse ChronolegiResponse ────────────────────
-      // Structure réelle : { regroupements: RegroupementDTO[] }
-      // Chaque RegroupementDTO : { title: string, versions: { [date]: VersionDTO } }
-      // Chaque VersionDTO : { dateDebut: string (ts ms), isEndVersion: boolean, articlesModificateurs: {...} }
+      // Normalisation de la réponse ChronolegiResponse
+
       const versions: TimelineVersion[] = [];
 
       const regroupements: Record<string, unknown>[] = Array.isArray(data.regroupements)
@@ -770,11 +630,8 @@ export function useDocumentViewer(fond: Fond, source: Source) {
   const linkPreviewCache = useRef<Map<string, string>>(new Map());
   const linkPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** Résout l'endpoint de preview selon le préfixe de l'identifiant.
-   *  Si `cid` est fourni (lien de version d'article), on route vers
-   *  l'endpoint dédié qui va chercher la bonne version via getArticleByCid —
-   *  /consult/getArticle avec l'id d'une version historique ne renvoie pas
-   *  fiablement son contenu (cf. renderArticleVersionsBlock). */
+  /** Résout l'endpoint de preview selon le préfixe de l'identifiant. **/
+
   const resolvePreviewEndpoint = useCallback((id: string, cid?: string): string => {
     const base = `${API_BASE}/api/juridique`;
     if (cid) return `${base}/article-version/${encodeURIComponent(cid)}/${encodeURIComponent(id)}`;
@@ -799,17 +656,10 @@ export function useDocumentViewer(fond: Fond, source: Source) {
     const id = citeEl.dataset.citeId;
     if (!id) return;
     const cid = citeEl.dataset.citeCid;
-    // Clé de cache distincte des liens de version (même id de version =
-    // toujours le même contenu, mais on inclut le cid par prudence/lisibilité).
     const cacheKey = cid ? `${cid}::${id}` : id;
-
-    // Position de la bulle : juste sous l'élément survolé
     const rect = citeEl.getBoundingClientRect();
-    // Coordonnées fixes dans le viewport (position: fixed sur la bulle)
     const x = rect.left;
     const y = rect.bottom + 6;
-
-    // Masquer le title natif du navigateur pour éviter le double tooltip
     if (citeEl.title) {
       citeEl.dataset.savedTitle = citeEl.title;
       citeEl.removeAttribute('title');
@@ -896,12 +746,6 @@ export function useDocumentViewer(fond: Fond, source: Source) {
   }, [viewedDoc]);
 
   // ── Charger la totalité des articles cités inline ───────────────────────────
-  // Relance `resolveInlineCitations` sur le HTML brut (pré-résolution) du
-  // document courant, sans plafond (`maxLinks = Infinity`), pour les textes
-  // qui citent plus d'articles que `DEFAULT_MAX_INLINE_CITATIONS` (cf.
-  // bouton « Charger tous les articles » à côté de « Comparer » dans
-  // JuridiquePanel.tsx). Session-only : `rawBody` n'est pas persisté, donc
-  // sans effet après réouverture du document.
   const [loadingAllArticles, setLoadingAllArticles] = useState(false);
   const loadAllArticles = useCallback(async () => {
     const doc = viewedDoc;
@@ -910,7 +754,7 @@ export function useDocumentViewer(fond: Fond, source: Source) {
     try {
       const body = await resolveInlineCitations(doc.rawBody, fetchArticleHtml, Infinity);
       setViewedDoc((cur) => (cur && cur.id === doc.id)
-        ? { ...cur, content: { ...cur.content, body }, contenu: stripHtml(body), allArticlesLoaded: true }
+        ? { ...cur, content: { ...cur.content, body }, contenu: htmlToPlainBlocks(body), allArticlesLoaded: true }
         : cur);
     } finally {
       setLoadingAllArticles(false);

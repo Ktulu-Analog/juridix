@@ -1,13 +1,18 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Types partagés
+// Juridix — Assistant IA juridique desktop
 // ============================================================================
-// Types purs (aucune logique), utilisés par JuridiquePanel.tsx et par les
-// futurs hooks (useJuridiqueSearch, useDocumentViewer, useDossiers,
-// useFavorites, useAnnotations…).
-//
-// Extrait de JuridiquePanel.tsx (étape 3 du refactor — cf. discussion du
-// 04-05/07/2026).
+// Auteur  : Pierre COUGET
 // Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Juridix — Espace "Recherche juridique" — Types partagés
 // ============================================================================
 
 import type { ReactNode } from 'react';
@@ -24,11 +29,6 @@ export interface DossierItem {
   raw: unknown;
 }
 
-/** Une analyse LLM générée pour un dossier (synthèse, points clés,
- *  contradictoire…) — horodatée, conservée en historique plutôt qu'écrasée à
- *  chaque nouvelle demande, pour permettre de revenir sur une analyse
- *  antérieure même après avoir relancé une nouvelle synthèse ou modifié la
- *  composition du dossier entre-temps. */
 export interface DossierAnalysis {
   id: string;
   mode: 'synthese' | 'contradictoire' | 'points_cles';
@@ -44,9 +44,7 @@ export interface Dossier {
   nom: string;
   createdAt: number;
   items: DossierItem[];
-  /** Id de la conversation SQLite portant le fil contextuel de ce dossier. */
   conversationId?: string;
-  /** Historique des analyses LLM de ce dossier, la plus récente en dernier. */
   analyses?: DossierAnalysis[];
 }
 
@@ -73,20 +71,6 @@ export interface TimelineVersion {
   modificateurs?: Array<{ id: string; title: string; action: string }>;
 }
 
-// A4 — schéma vérifié contre le swagger officiel Légifrance v2.4.2
-// (définitions `DossierLegislatif` / `Lien` / `Niveau` / `Arborescence` /
-// `Legislature` / `Dossier`, réponse `ConsultDossierLegislatifResponse` de
-// POST /consult/dossierLegislatif). Le champ `dossiersLegislatifs` (déjà des
-// objets `DossierLegislatif` COMPLETS, pas de simples références id/titre)
-// est présent sur `SearchResult`, mais AUSSI directement sur les réponses de
-// consultation d'un texte (`ConsultTextResponse`/`ConsultJorfResponse`) — cf.
-// useDocumentViewer.ts::openDocument, qui lit `raw.dossiersLegislatifs` en
-// priorité (plus à jour) et ne retombe sur celui du résultat de recherche
-// que si absent.
-
-/** Lien terminal dans l'arborescence d'un dossier législatif — pointe vers
- *  une ressource externe (Sénat/Assemblée nationale), pas vers un id
- *  Légifrance résoluble en interne. */
 export interface DossierLegislatifLien {
   libelle?: string;
   id?: string;
@@ -94,8 +78,7 @@ export interface DossierLegislatifLien {
   lien?: string;
 }
 
-/** Nœud intermédiaire de l'arborescence (ex. « Sénat », « Assemblée
- *  nationale ») — récursif : peut contenir d'autres niveaux et/ou des liens. */
+
 export interface DossierLegislatifNiveau {
   libelle?: string;
   id?: string;
@@ -108,24 +91,18 @@ export interface DossierLegislatifArborescence {
   niveaux?: DossierLegislatifNiveau[];
 }
 
-/** Sous-dossier avec son propre contenu HTML (ex. un dossier par chambre). */
 export interface DossierLegislatifSousDossier {
   libelleTexte?: string;
   idTexte?: string;
   contenuDossier?: string;
 }
 
-/** Dossier législatif (id `JORFDOLE…`) — travaux préparatoires d'un texte de
- *  loi. Objet `DossierLegislatif` du swagger officiel. */
 export interface DossierLegislatifRef {
   id: string;
   titre?: string;
-  /** Texte HTML de l'exposé des motifs. */
   exposeMotif?: string;
   nature?: string;
-  /** Ex. "LOI_PUBLIEE". */
   type?: string;
-  /** Timestamps ms (nombre ou chaîne) — formatables tels quels via formatLegiDate. */
   dateCreation?: string;
   dateDerniereModification?: string;
   dateMajEcheancier?: string;
@@ -140,14 +117,7 @@ export interface DossierLegislatifRef {
 
 export interface SearchResult {
   id?: string;
-  // Champ interne (non-API) : présent uniquement sur l'objet minimal passé
-  // par handleCitationClick pour un lien de version d'article, afin de
-  // router openDocument vers l'endpoint dédié /article-version/:cid/:id
-  // plutôt que /consult/getArticle (qui ne renvoie pas fiablement le
-  // contenu d'une version historique précise — cf. renderArticleVersionsBlock).
   _versionCid?: string;
-  // ⚠️ titles[].id et titles[].cid identifient le TEXTE entier
-  // (LEGITEXT/JORFTEXT), jamais un article. Cf. swagger SearchTitle.
   titles?: Array<{ id: string; title: string; cid?: string }>;
   sections?: Array<{
     id?: string;
@@ -160,9 +130,6 @@ export interface SearchResult {
   datePublication?: string;
   date?: string;
   dateDecision?: string;
-  // JUDILIBRE — nom de champ réel confirmé par le swagger officiel
-  // (definitions decisionFull/searchResult) : il n'existe ni `date` ni
-  // `dateDecision` côté Judilibre, uniquement `decision_date`/`decision_datetime`.
   decision_date?: string;
   decision_datetime?: string;
   summary?: string;
@@ -172,10 +139,6 @@ export interface SearchResult {
   nor?: string;
   text?: string;
   resumePrincipal?: string[];
-  // LÉGIFRANCE — mots-clés associés au résultat (équivalent des `themes`
-  // Judilibre pour les fonds où l'API les renseigne : LODA, JORF, CONVCOLL…
-  // Vide pour la plupart des décisions de jurisprudence (JURI/CETAT/CONSTIT),
-  // qui n'ont pas de taxonomie de matière côté Légifrance.
   motsCles?: string[];
   // JUDILIBRE
   score?: number;
@@ -189,12 +152,6 @@ export interface SearchResult {
   numbers?: string[];
   titrage?: Array<{ titre?: string; theme?: string; originalText?: string }> | string[];
   highlights?: Record<string, string[]>;
-  // A4 — présent sur les résultats LODA/JORF (lois/décrets), absent des
-  // décisions de jurisprudence : pointe vers le(s) dossier(s) législatif(s)
-  // (travaux préparatoires — exposé des motifs, arborescence des débats
-  // parlementaires par chambre) liés à ce texte. Déjà des objets complets
-  // (pas de simples id/titre) — cf. DossierLegislatifRef ci-dessus, vérifié
-  // contre le swagger officiel Légifrance v2.4.2.
   dossiersLegislatifs?: DossierLegislatifRef[];
 }
 
@@ -225,11 +182,6 @@ export interface TocEntry {
   level: number; // 0 = titre du document, 1 = section/zone
 }
 
-// ── Plan interactif (sommaire façon Dalloz) ──────────────────────────────────
-// Arbre reconstruit depuis le DOM rendu (cf. buildTocTree dans
-// useDocumentViewer.ts) en respectant l'imbrication réelle des sections —
-// contrairement à `TocEntry` (liste plate historique), qui aplatissait tous
-// les niveaux de profondeur d'un code/texte en un seul "level 1" indistinct.
 export interface TocTreeNode {
   id: string;
   label: string;
@@ -246,25 +198,7 @@ export interface ViewedDoc {
   source: Source;
   type: 'article' | 'decision' | 'code' | 'loda' | 'juri' | 'kali' | 'cnil' | 'circ' | 'acco' | 'bocc' | 'debat' | 'question_ecrite' | 'doc_admin' | 'dossier_legislatif';
   raw: unknown;
-  // A4 — le champ `dossiersLegislatifs` est présent à la fois sur le
-  // SearchResult ET directement sur la réponse de consultation du texte
-  // (ConsultTextResponse/ConsultJorfResponse, cf. swagger officiel) : reporté
-  // ici au moment de l'ouverture avec priorité à `raw.dossiersLegislatifs`
-  // (plus à jour), repli sur celui du résultat de recherche sinon — cf.
-  // useDocumentViewer.ts::openDocument. Permet d'afficher le bouton
-  // « Travaux préparatoires » une fois le texte affiché en plein écran.
   dossiersLegislatifs?: DossierLegislatifRef[];
-  // ── Résolution inline des citations d'article (cf. resolveInlineCitations
-  // dans content/html-helpers.ts) — champs permettant de proposer un bouton
-  // « Charger tous les articles » qui relance la résolution sans plafond
-  // quand un document cite plus d'articles que le plafond par défaut :
-  //  - rawBody : HTML AVANT résolution inline (citations encore de simples
-  //    liens), conservé uniquement pour pouvoir relancer la résolution ;
-  //    absent si le document ne contient aucune citation d'article.
-  //  - totalInlineArticles : nombre total (non plafonné) d'articles cités.
-  //  - allArticlesLoaded : true une fois la résolution complète effectuée
-  //    (soit parce que le total ne dépassait pas le plafond, soit après un
-  //    clic sur le bouton « Charger tous les articles »).
   rawBody?: string;
   totalInlineArticles?: number;
   allArticlesLoaded?: boolean;
@@ -274,20 +208,50 @@ export interface ViewedDoc {
 export type DocType = ViewedDoc['type'];
 
 export interface JuridiquePanelProps {
-  /** Rappelé pour envoyer un message (document, synthèse de dossier…) dans le chat
-   *  principal partagé — la réponse y apparaît avec artefacts, historique, RAG, MCP.
-   *  Retourne (une fois le streaming terminé) le texte final généré par le LLM,
-   *  pour permettre à l'appelant (ex : historique des analyses de dossier) de
-   *  conserver la VRAIE réponse plutôt que le prompt envoyé. `null` si l'appel
-   *  a été interrompu/en erreur. */
-  onSendToChat: (message: string) => Promise<string | null>;
-  /** Rappelé pour RÉAFFICHER un message déjà généré (ex : relecture d'une
-   *  analyse de dossier archivée) sans relancer d'appel LLM — contrairement à
-   *  `onSendToChat`, le texte est injecté tel quel comme réponse d'assistant,
-   *  pas envoyé en tant que nouvelle question. */
+
+  onSendToChat: (message: string, opts?: { completeWithMcp?: boolean }) => Promise<string | null>;
+  officialMcpAvailable?: boolean;
+  veilleSignal?: number;
+  veilleUnread?: number;
+  onVeilleChanged?: () => void;
   onShowInChat: (message: string) => void;
   onClose: () => void;
-  /** Contrôles transverses (usage tokens/CO₂, artefacts, comparer, utilisateur, modèle)
-   *  fusionnés dans l'en-tête du panneau pour éviter d'empiler deux bandeaux. */
   globalControls?: ReactNode;
+  winnowEnabled: boolean;
+}
+
+export interface WinnowDroppedItem {
+  doc: number;
+  doc_titre: string;
+  heading: string | null;
+  reason: string;       // « hors sujet » | « sans contenu juridique »
+  p: number;            // probabilité sur laquelle repose l'éviction du passage
+  preview: string;      // 120 premiers caractères du passage écarté
+}
+
+export interface WinnowReport {
+  enabled: boolean;
+  applied: boolean;
+  model: string;
+  total_passages: number;
+  scored: number;
+  kept: number;
+  dropped: number;
+  unscored: number;
+  chars_before: number;
+  chars_after: number;
+  elapsed_ms: number;
+  fallback: string | null;
+  dropped_items: WinnowDroppedItem[];
+}
+
+export interface WinnowStatus {
+  enabled: boolean;
+  reachable: boolean;
+  version: string | null;
+  model: string;
+  model_installed: boolean;
+  model_loaded: boolean;
+  device: string | null;
+  hint: string | null;
 }

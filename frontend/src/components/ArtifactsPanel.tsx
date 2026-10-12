@@ -23,6 +23,8 @@ import { markdownToWordHtml, copyHtmlToClipboard, normalizeHeadings, normalizeLa
 import { generateDocx } from '../utils/docx';
 import { useDialog } from '../DialogContext';
 import type { Artifact } from '../utils/artifacts';
+import { CitationContext } from './CitationBadge';
+import { annotateCitations, useCitationReport, type GroundingGetter } from '../utils/citations';
 
 const WORD_MD_COMPONENTS = makeMdComponents(false);
 
@@ -42,14 +44,20 @@ const WordDocBlock = memo(function WordDocBlock({ content, containerRef }: { con
 
 // Mémoïsé : couvre les artefacts "réponse complète" et "tableau",
 // qui peuvent contenir des blocs ECharts/Mermaid coûteux à re-rendre.
-const FullContentBlock = memo(function FullContentBlock({ content }: { content: string }) {
+// Chantier 4 : les références d'articles de code y sont vérifiées et badgées.
+// (Volontairement absent de WordDocBlock : ce rendu est exporté en .docx depuis le DOM.)
+const FullContentBlock = memo(function FullContentBlock({ content, getGrounding }: { content: string; getGrounding?: GroundingGetter }) {
+  const citationReport = useCitationReport(content, true, getGrounding);
+  const rendered = useMemo(() => annotateCitations(content, citationReport), [content, citationReport]);
   return (
     <div className="artifact-markdown bubble-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
-        components={ARTIFACT_MD_COMPONENTS}
-      >{normalizeHeadings(normalizeLatex(content))}</ReactMarkdown>
+      <CitationContext.Provider value={citationReport}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={ARTIFACT_MD_COMPONENTS}
+        >{normalizeHeadings(normalizeLatex(rendered))}</ReactMarkdown>
+      </CitationContext.Provider>
     </div>
   );
 });
@@ -92,11 +100,13 @@ interface ArtifactsPanelProps {
   // fixée (l'overlay chat flottant, par ex.) : pas de largeur propre ni de
   // poignée de redimensionnement, le panneau remplit simplement son parent.
   fillParent?: boolean;
+  /** Ce que le modèle a reçu pour la réponse affichée (ancrage des citations) ; stable. */
+  getGrounding?: GroundingGetter;
 }
 
 // Mémoïsé : ne se re-rend que si artifacts ou onClose changent,
 // pas à chaque frappe dans le ChatInput.
-export const ArtifactsPanel = memo(function ArtifactsPanel({ artifacts, onClose, fillParent = false }: ArtifactsPanelProps) {
+export const ArtifactsPanel = memo(function ArtifactsPanel({ artifacts, onClose, fillParent = false, getGrounding }: ArtifactsPanelProps) {
   const [activeId, setActiveId]       = useState(artifacts[0]?.id);
   const [listOpen, setListOpen]       = useState(false);
   const [copied, setCopied]           = useState(false);
@@ -347,7 +357,7 @@ export const ArtifactsPanel = memo(function ArtifactsPanel({ artifacts, onClose,
         ) : active.type === 'word' ? (
           <WordDocBlock content={active.content} containerRef={wordPreviewRef} />
         ) : (
-          <FullContentBlock content={active.content} />
+          <FullContentBlock content={active.content} getGrounding={getGrounding} />
         )}
       </div>
     </aside>

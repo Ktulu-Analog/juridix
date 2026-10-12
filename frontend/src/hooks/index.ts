@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type React from 'react';
 import { API_BASE } from '../constants';
+import { notifyBlocked } from '../utils/mcpGrants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -203,6 +204,26 @@ export function useChatStream(
         if (!raw || raw === '[DONE]') return raw === '[DONE]' ? 'DONE' : null;
         if (eventType === 'rag_sources') {
           try { const p = JSON.parse(raw); if (p.sources) setMessages(prev => { const m = [...prev]; m[m.length-1] = { ...m[m.length-1], ragSources: p.sources }; return m; }); } catch { /* ignore */ }
+          return null;
+        }
+        if (eventType === 'grounding') {
+          // Clés des références présentes dans les résultats d'outils MCP et les extraits
+          // RAG de ce tour : ce que le modèle a reçu en plus du prompt (ancrage des citations).
+          try {
+            const p = JSON.parse(raw);
+            if (Array.isArray(p.keys)) setMessages(prev => {
+              const m = [...prev]; const last = m[m.length-1];
+              const known = new Set<string>(Array.isArray(last.groundingKeys) ? last.groundingKeys as string[] : []);
+              for (const k of p.keys) if (typeof k === 'string') known.add(k);
+              m[m.length-1] = { ...last, groundingKeys: [...known] };
+              return m;
+            });
+          } catch { /* ignore */ }
+          return null;
+        }
+        if (eventType === 'mcp_blocked') {
+          // Serveurs MCP écartés faute d'autorisation valide : l'application avertit l'utilisateur.
+          try { const p = JSON.parse(raw); if (Array.isArray(p.servers)) notifyBlocked(p.servers); } catch { /* ignore */ }
           return null;
         }
         if (eventType === 'mcp_image') {

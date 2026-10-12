@@ -5,17 +5,21 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  # Audit hebdomadaire : de nouvelles CVE apparaissent après coup
+  schedule:
+    - cron: '0 6 * * 1'
 
 jobs:
   # ── Frontend ─────────────────────────────────────────────────────────────────
   frontend:
     name: Frontend (TypeScript)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           cache: 'npm'
@@ -37,8 +41,9 @@ jobs:
   rust:
     name: Rust (check + clippy + fmt)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install system dependencies (Linux)
         run: |
@@ -51,12 +56,13 @@ jobs:
             patchelf
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
+          toolchain: stable   # requis : épinglé par SHA, la branche « stable » n'est plus lue
           components: clippy, rustfmt
 
       - name: Cache Cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -85,3 +91,29 @@ jobs:
       - name: Tests
         working-directory: src-tauri
         run: cargo test --no-default-features
+
+  # ── Sécurité des dépendances ─────────────────────────────────────────────────
+  audit:
+    name: Audit des dépendances (cargo audit + npm audit)
+    runs-on: ubuntu-latest
+    # Informatif pour l'instant (des alertes npm « high » sont à traiter) :
+    # retirer `continue-on-error` une fois `npm audit fix` appliqué.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+
+      - name: npm audit (dépendances de production)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit

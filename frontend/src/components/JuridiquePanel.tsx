@@ -1,8 +1,16 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique"
+// Juridix — Assistant IA juridique desktop
 // ============================================================================
 // Auteur  : Pierre COUGET
 // Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
 // ============================================================================
 // Trois zones :
 //   ① Colonne gauche  — formulaire de recherche + liste de résultats paginée
@@ -12,6 +20,8 @@
 // Les appels LLM ne se font PAS ici : on prépare le message via
 // POST /api/juridique/envoyer-chat puis on rappelle onSendToChat().
 // ============================================================================
+
+
 
 import {
   useState,
@@ -38,34 +48,14 @@ import {
   extractLegifranceHighlight, solutionModifier,
 } from './juridique/search-helpers';
 import { useFavorites } from './juridique/hooks/useFavorites';
+import { VeillePanel } from './VeillePanel';
+import { openArgs } from '../utils/veille';
 import { useAnnotations } from './juridique/hooks/useAnnotations';
 import { useDossiers } from './juridique/hooks/useDossiers';
+import { WinnowIndicator } from './juridique/WinnowBadge';
 import { useJuridiqueSearch } from './juridique/hooks/useJuridiqueSearch';
 import { useDocumentViewer, parseChronoDate } from './juridique/hooks/useDocumentViewer';
 
-// NB : React/useCallback/useMemo/ReactMarkdown/remarkGfm/API_BASE/
-// ARTIFACT_MD_COMPONENTS et une bonne partie de html-helpers/storage/content
-// étaient importés ici avant le découpage en hooks (étapes 1-4 du refactor)
-// mais ne sont plus utilisés directement dans ce fichier — leur usage a migré
-// vers les hooks dédiés. Nettoyé pour éviter la confusion sur qui utilise
-// quoi. `ReactMarkdown`/`remarkGfm`/`ARTIFACT_MD_COMPONENTS` étaient déjà du
-// code mort AVANT le refactor : `ContentFormat` prévoit un mode 'markdown',
-// mais aucun extracteur ne le produit (tous renvoient 'html') et le rendu
-// (plus bas) passe toujours par dangerouslySetInnerHTML — jamais par
-// ReactMarkdown. À garder en tête si vous réintroduisez un jour du contenu
-// Markdown pur.
-
-// ── Types et constantes ──────────────────────────────────────────────────────
-// Déplacés vers ./juridique/types.ts et ./juridique/constants.ts
-// (étape 3 du refactor — cf. discussion du 04-05/07/2026).
-
-// Les helpers purs de recherche/résultats (fondRequiresQuery, extractTitle,
-// extractResultId, extractDate, extractLegifranceHighlight, solutionModifier,
-// normalizeBoccTextResult, normalizeDebatResult, normalizeQuestionResult,
-// normalizeDocAdminResult) vivent désormais dans ./juridique/search-helpers,
-// partagés entre useJuridiqueSearch, useDocumentViewer et le JSX resté ici.
-// fondToEndpointInfo vit désormais dans ./juridique/hooks/useDocumentViewer
-// (seul consommateur).
 
 // Libellés/icônes des modes d'analyse de dossier — partagés entre les
 // boutons de lancement et l'historique des analyses passées.
@@ -141,7 +131,7 @@ function TocTreeList({
   );
 }
 
-export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalControls }: JuridiquePanelProps) {
+export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalControls, winnowEnabled, officialMcpAvailable = false, veilleSignal = 0, veilleUnread = 0, onVeilleChanged }: JuridiquePanelProps) {
   // ── Panneau de facettes : repliable, masqué par défaut, posé en overlay
   // au-dessus du corps (façon Dalloz/Lexis) — plus une simple variante mobile.
   // Déclaré avant useJuridiqueSearch() car passé en paramètre (conditionne le
@@ -209,12 +199,18 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
     renameValue, setRenameValue,
     activeDossier, dossier,
     dossierLlmLoading, dossierLlmMode,
+    dossierFocus, setDossierFocus, winnowReport,
+    dossierComplete, setDossierComplete,
     isInDossier,
     createDossier, renameDossier, deleteDossier, toggleDossier,
     openDossierItem, removeDossierItem, clearDossier,
     sendDossierToLlm, exportDossierMarkdown,
     removeDossierAnalysis, reopenDossierAnalysis,
-  } = useDossiers(viewedDoc, setViewedDoc, setDocStack, setDocError, onSendToChat, onShowInChat);
+  } = useDossiers(viewedDoc, setViewedDoc, setDocStack, setDocError, onSendToChat, onShowInChat, winnowEnabled, officialMcpAvailable);
+
+  // Veille juridique : panneau + ouverture depuis le badge de la barre du haut.
+  const [showVeille, setShowVeille] = useState(false);
+  useEffect(() => { if (veilleSignal > 0) setShowVeille(true); }, [veilleSignal]);
 
   // ── Annotations ─────────────────────────────────────────────────────────────
   // viewerContentRef vient de useDocumentViewer : partagée avec le mécanisme
@@ -271,12 +267,13 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
       if (isEditable) return;
       if (linkPreview) { setLinkPreview(null); return; }
       if (showFavorites) { setShowFavorites(false); return; }
+      if (showVeille) { setShowVeille(false); return; }
       if (showDossier) { setShowDossier(false); return; }
       if (viewedDoc) closeDocument();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [viewedDoc, closeDocument, linkPreview, showFavorites, showDossier]);
+  }, [viewedDoc, closeDocument, linkPreview, showFavorites, showDossier, showVeille]);
 
   // ── LLM ────────────────────────────────────────────────────────────────────
 
@@ -1136,6 +1133,15 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
             <span className="jur-burger-icon" aria-hidden="true"><span /><span /><span /></span>
             Filtres{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
           </button>
+          {/* ── Bouton Veille juridique ──────────────────────────────── */}
+          <button
+            className={`jur-veille-btn${showVeille ? ' jur-veille-btn--active' : ''}`}
+            onClick={() => setShowVeille(v => !v)}
+            title="Veille juridique : textes et décisions nouveaux correspondant à vos critères"
+          >
+            🔔 Veille
+            {veilleUnread > 0 && <span className="jur-veille-btn__count" aria-label={`${veilleUnread} non lus`}>{veilleUnread}</span>}
+          </button>
           {/* ── Bouton Dossier enrichi ───────────────────────────────── */}
           <div className={`jur-dossier-btn-wrap${showDossier ? ' jur-dossier-btn-wrap--open' : ''}`}>
             <button
@@ -1526,6 +1532,24 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
             </div>
           )}
 
+          {/* ── Veille juridique ────────────────────────────────────────────── */}
+          {showVeille && (
+            <div className="jur-veille-panel">
+              <VeillePanel
+                onClose={() => setShowVeille(false)}
+                onChanged={onVeilleChanged}
+                winnowEnabled={winnowEnabled}
+                // Synthèse de veille : restitution factuelle des textes sélectionnés, sans outils.
+                onSynthese={(prompt) => onSendToChat(prompt, { completeWithMcp: false })}
+                onOpenResult={(r) => {
+                  const a = openArgs(r);
+                  openDocument(a.result, true, a.fond, a.source);
+                  setShowVeille(false);
+                }}
+              />
+            </div>
+          )}
+
           {/* ── Dossier / Cartable ──────────────────────────────────────────── */}
           {showDossier && (
             <div className="jur-dossier-panel">
@@ -1673,9 +1697,40 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
                       {/* Analyse LLM groupée */}
                       <div className="jur-dossier-llm">
                         <div className="jur-dossier-llm-title">
-                          ⚖️ Analyser le dossier avec l'IA
-                          <span className="jur-dossier-llm-count">{dossier.length} doc{dossier.length > 1 ? 's' : ''}</span>
+                          <span>⚖️ Analyser le dossier avec l'IA</span>
+                          <span className="jur-dossier-llm-title-right">
+                            <span className="jur-dossier-llm-count">{dossier.length} doc{dossier.length > 1 ? 's' : ''}</span>
+                            <WinnowIndicator enabled={winnowEnabled} report={winnowReport} />
+                          </span>
                         </div>
+                        <input
+                          className="jur-dossier-focus"
+                          type="text"
+                          value={dossierFocus}
+                          onChange={(e) => setDossierFocus(e.target.value)}
+                          disabled={dossierLlmLoading}
+                          placeholder="Question ou point précis (facultatif) — permet d'écarter les passages hors sujet"
+                          title="Si le pré-filtre local Winnow est activé, les passages sans rapport avec cette question sont retirés avant l'envoi à l'IA."
+                        />
+                        <label
+                          className={`jur-dossier-complete${officialMcpAvailable ? '' : ' jur-dossier-complete--off'}`}
+                          title={officialMcpAvailable
+                            ? "L'IA pourra consulter Légifrance et Judilibre en plus du dossier (lire un texte cité, vérifier son état en vigueur). Les compléments sont signalés dans la réponse. Désactivé par défaut : l'analyse reste une restitution du seul dossier."
+                            : "Activez Légifrance et/ou Judilibre dans Réglages › Serveurs MCP pour utiliser cette option."}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={dossierComplete && officialMcpAvailable}
+                            disabled={!officialMcpAvailable || dossierLlmLoading}
+                            onChange={(e) => setDossierComplete(e.target.checked)}
+                          />
+                          <span>Compléter via Légifrance / Judilibre</span>
+                          <small>
+                            {officialMcpAvailable
+                              ? (dossierComplete ? "L'IA peut consulter ces sources en plus du dossier." : "Dossier seul, sans outil.")
+                              : "Serveurs non activés (Réglages › Serveurs MCP)."}
+                          </small>
+                        </label>
                         <div className="jur-dossier-llm-modes">
                           <button
                             className={`jur-dossier-llm-btn${dossierLlmMode === 'synthese' ? ' jur-dossier-llm-btn--loading' : ''}`}

@@ -22,9 +22,17 @@ mod db;
 mod extract;
 mod juridique;
 mod mcp;
+mod mcp_grants;
+mod mcp_pack;
+mod mcp_stdio;
 mod models;
 mod rag;
+mod rgpd;
+mod secrets;
+mod security;
 mod spaces;
+mod veille;
+mod winnow;
 
 pub use api::{AppState, Credentials};
 pub use db::Database;
@@ -65,30 +73,142 @@ async fn init_credentials(
         .filter(|ct| !ct.token.trim().is_empty() && !ct.collection.trim().is_empty())
         .collect();
 
-    // ── TRACE init_credentials ───────────────────────────────────────────────
-    let is_jwt_key = creds
-        .qdrant_api_key
-        .as_deref()
-        .map(|k| k.starts_with("eyJ"))
-        .unwrap_or(false);
-    tracing::info!(
-        "[TRACE init_credentials] user_email={:?} qdrant_key_type={} key_prefix={:?}          qdrant_url={:?} nb_collection_tokens={} collections={:?}",
-        creds.user_email,
-        if is_jwt_key { "JWT" } else { "raw_key_or_none" },
-        creds.qdrant_api_key.as_deref().map(|k| &k[..k.len().min(12)]),
-        creds.qdrant_url,
+    // Ne jamais journaliser les clés/jetons (même partiellement) : seul un
+    // récapitulatif non sensible est tracé.
+    tracing::debug!(
+        "init_credentials : nb_collection_tokens={} qdrant_url_set={}",
         creds.qdrant_collection_tokens.len(),
-        creds.qdrant_collection_tokens.iter().map(|ct| ct.collection.clone()).collect::<Vec<_>>(),
+        creds.qdrant_url.is_some(),
     );
 
     if let (Some(id), Some(secret)) = (payload.piste_client_id, payload.piste_client_secret) {
         if !id.trim().is_empty() && !secret.trim().is_empty() {
+            // Mêmes identifiants pour les serveurs MCP STDIO (Légifrance, Judilibre) :
+            // transmis en mémoire à leur processus, jamais écrits sur disque.
+            mcp_stdio::HUB.set_secret(mcp_stdio::SECRET_PISTE_ID, id.trim());
+            mcp_stdio::HUB.set_secret(mcp_stdio::SECRET_PISTE_SECRET, secret.trim());
             state.juridique.reinit_client(id, secret);
             tracing::info!("[Juridique] Client PISTE réinitialisé depuis init_credentials");
         }
     }
 
     Ok(())
+}
+
+// ── Commandes Tauri : stockage sécurisé des secrets (trousseau système) ───────
+// Remplace le stockage en clair dans le localStorage du frontend (voir
+// frontend/src/secureStorage.ts, qui appelle ces trois commandes). Chaque
+// commande décharge l'appel bloquant au trousseau sur le pool blocking de
+// tokio pour ne jamais geler la boucle async le temps d'un accès Keychain /
+// Credential Manager / Secret Service.
+//
+// `key` est vérifiée contre `secrets::FRONTEND_ALLOWED_KEYS` : le frontend ne
+// peut ni lire ni écraser la clé de chiffrement de la base (`db_encryption_key`),
+// qui n'y figure pas.
+
+fn check_frontend_key(key: &str) -> Result<(), String> {
+    if secrets::FRONTEND_ALLOWED_KEYS.contains(&key) {
+        Ok(())
+    } else {
+        Err(format!("clé de secret non autorisée depuis le frontend : {key}"))
+    }
+}
+
+#[tauri::command]
+async fn store_secret(key: String, value: String) -> Result<(), String> {
+    check_frontend_key(&key)?;
+    tokio::task::spawn_blocking(move || secrets::store(&key, &value))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_secret(key: String) -> Result<Option<String>, String> {
+    check_frontend_key(&key)?;
+    tokio::task::spawn_blocking(move || secrets::read(&key))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_secret(key: String) -> Result<(), String> {
+    check_frontend_key(&key)?;
+    tokio::task::spawn_blocking(move || secrets::delete(&key))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+// ── Commandes Tauri : export / effacement RGPD (chantier 3) ────────────────────
+// Volontairement des commandes IPC et non des routes HTTP : elles ne sont pas
+// joignables par l'API locale, même avec le jeton.
+
+/// Exporte toutes les données de l'utilisateur dans une archive ZIP (AES-256 si un mot de
+/// passe est fourni). `frontend_data` : `localStorage` sérialisé par le frontend.
+#[tauri::command]
+async fn export_user_data(
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+    dest: String,
+    frontend_data: String,
+    password: Option<String>,
+) -> Result<rgpd::ExportReport, String> {
+    let tables = state.db.dump_all_tables().await.map_err(|e| format!("{e:#}"))?;
+    let prompts = std::fs::read_to_string(&state.prompts_path).ok();
+    let dest = std::path::PathBuf::from(dest);
+    tokio::task::spawn_blocking(move || {
+        rgpd::write_export_zip(&rgpd::ExportInput {
+            dest: &dest,
+            tables: &tables,
+            prompts_yaml: prompts,
+            frontend_json: &frontend_data,
+            password: password.as_deref(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+/// Premier temps de l'effacement de toutes les données (voir rgpd.rs). Exige le mot de
+/// confirmation ; le frontend vide ensuite son `localStorage` puis appelle `restart_app`.
+#[tauri::command]
+async fn wipe_user_data(
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+    paths: tauri::State<'_, rgpd::DataPaths>,
+    confirmation: String,
+) -> Result<rgpd::WipeReport, String> {
+    if confirmation.trim() != rgpd::WIPE_CONFIRMATION {
+        return Err("confirmation invalide".to_string());
+    }
+    rgpd::wipe_now(paths.inner(), &state.db).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Redémarre l'application (après un effacement : le second temps s'exécute au lancement).
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
+/// État de la sauvegarde en clair laissée par la migration vers SQLCipher (R-01).
+#[tauri::command]
+fn backup_status(paths: tauri::State<'_, rgpd::DataPaths>) -> rgpd::BackupStatus {
+    rgpd::backup_status(paths.inner())
+}
+
+/// Supprime (écrasement puis suppression) la sauvegarde en clair.
+#[tauri::command]
+fn delete_backup(paths: tauri::State<'_, rgpd::DataPaths>) -> Result<(), String> {
+    rgpd::delete_backup(paths.inner()).map_err(|e| format!("{e:#}"))
+}
+
+// ── Commande Tauri : jeton de l'API HTTP locale ───────────────────────────────
+// Le frontend le lit une fois au démarrage (IPC) puis l'ajoute en en-tête
+// `X-Juridix-Token` à chaque requête vers le serveur axum. Voir `security.rs`.
+#[tauri::command]
+fn get_api_token(state: tauri::State<'_, std::sync::Arc<AppState>>) -> String {
+    state.api_token.clone()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -231,6 +351,18 @@ pub fn run() {
                 .expect("Failed to resolve app data dir");
             std::fs::create_dir_all(&app_data_dir).expect("Failed to create data dir");
 
+            // Effacement RGPD en attente (demandé avant ce lancement) : à terminer AVANT de
+            // récupérer la clé du trousseau et d'ouvrir la base — voir rgpd.rs.
+            let data_paths = rgpd::DataPaths::new(app_data_dir.clone());
+            rgpd::run_pending_wipe(&data_paths)
+                .expect("Effacement des données interrompu : voir le message ci-dessus");
+            if rgpd::backup_status(&data_paths).exists {
+                tracing::warn!(
+                    "Une sauvegarde EN CLAIR de l'ancienne base est présente sur le disque : \
+                     à supprimer dans Réglages > Données et confidentialité"
+                );
+            }
+
             let prompts_path = app
                 .path()
                 .resource_dir()
@@ -249,6 +381,11 @@ pub fn run() {
             };
 
             let db_path = app_data_dir.join("conversations.db");
+            // Serveurs MCP STDIO (Légifrance, Judilibre) : importés dans le dossier de
+            // données de l'application, un sous-dossier par serveur (cf. mcp_pack.rs).
+            let mcp_dir = app_data_dir.join("mcp-servers");
+            info!("MCP STDIO dossier: {}", mcp_dir.display());
+            mcp_stdio::HUB.set_dir(mcp_dir);
 
             info!("Data dir: {}", app_data_dir.display());
             info!("DB path: {}", db_path.display());
@@ -257,16 +394,29 @@ pub fn run() {
             let db_path_clone = db_path.clone();
             let prompts_path_clone = prompts_path.clone();
 
+            // Clé de chiffrement SQLCipher : récupérée dans le trousseau système,
+            // ou générée au tout premier démarrage — voir secrets.rs. Échec fatal
+            // volontaire ici (pas d'échec ouvert possible) : sans trousseau
+            // accessible, il n'y a aucun moyen sûr de garantir que la même clé
+            // sera retrouvée au prochain démarrage.
+            let db_key = secrets::get_or_create_db_key()
+                .expect("Impossible d'accéder au trousseau système pour la clé de chiffrement de la base");
+
             let db = tauri::async_runtime::block_on(async {
-                Database::new(&db_path_clone)
+                Database::new(&db_path_clone, &db_key)
                     .await
                     .expect("Failed to open database")
             });
 
             let (router, app_state) = api::build_router(db, prompts_path_clone);
 
-            // Partager AppState avec les commandes Tauri
+            // Veille juridique : planificateur de fond (rejoue les veilles à échéance et
+            // rattrape les périodes où l'application était fermée).
+            tauri::async_runtime::spawn(veille::run_scheduler(app_state.clone()));
+
+            // Partager AppState et les chemins de données avec les commandes Tauri
             handle.manage(app_state);
+            handle.manage(data_paths);
 
             tauri::async_runtime::spawn(async move {
                 let addr = SocketAddr::from(([127, 0, 0, 1], config::api_port()));
@@ -283,7 +433,18 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![init_credentials])
+        .invoke_handler(tauri::generate_handler![
+            init_credentials,
+            get_api_token,
+            export_user_data,
+            wipe_user_data,
+            restart_app,
+            backup_status,
+            delete_backup,
+            store_secret,
+            read_secret,
+            delete_secret
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Juridix");
 }

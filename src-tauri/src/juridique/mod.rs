@@ -20,6 +20,7 @@ pub mod client;
 pub mod judilibre;
 pub mod legifrance;
 pub mod routes;
+pub mod verify;
 
 // Re-exports pour api.rs
 pub use routes::{juridique_router, HasJuridiqueState, JuridiqueState};

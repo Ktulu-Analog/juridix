@@ -45,8 +45,9 @@ use tracing::debug;
 use super::client::PisteClient;
 
 // ── Base URL ──────────────────────────────────────────────────────────────────
-
-const LEGIFRANCE_BASE: &str = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
+// La base de l'API est portée par `PisteClient::legifrance_base()` (constante
+// `client::LEGIFRANCE_BASE` en production ; surchargeable en test pour viser un
+// mock local — voir `verify.rs`).
 
 // ── Types publics ─────────────────────────────────────────────────────────────
 
@@ -488,7 +489,7 @@ pub struct SearchResponse {
 
 /// Recherche générique dans l'API Légifrance.
 pub async fn search(client: &PisteClient, params: SearchParams) -> Result<SearchResponse> {
-    let url = format!("{}/search", LEGIFRANCE_BASE);
+    let url = format!("{}/search", client.legifrance_base());
     let body = params.to_api_body()?;
     client.post_json::<Value, SearchResponse>(&url, &body).await
 }
@@ -601,7 +602,7 @@ pub async fn search_simple(
 /// Récupère un article par son identifiant LEGIARTI (ou JORFARTI, etc.).
 /// Body attendu : { "id": "LEGIARTI000..." }
 pub async fn get_article(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/getArticle", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getArticle", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -609,7 +610,7 @@ pub async fn get_article(client: &PisteClient, id: &str) -> Result<Value> {
 /// Récupère un article par son CID (Chronical Identifier).
 /// Body attendu : { "cid": "LEGIARTI000..." }
 pub async fn get_article_by_cid(client: &PisteClient, cid: &str) -> Result<Value> {
-    let url = format!("{}/consult/getArticleByCid", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getArticleByCid", client.legifrance_base());
     let body = json!({ "cid": cid });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -622,7 +623,10 @@ pub async fn get_article_with_id_and_num(
     id: &str,
     num: &str,
 ) -> Result<Value> {
-    let url = format!("{}/consult/getArticleWithIdAndNum", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/consult/getArticleWithIdAndNum",
+        client.legifrance_base()
+    );
     let body = json!({ "id": id, "num": num });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -630,7 +634,7 @@ pub async fn get_article_with_id_and_num(
 /// Récupère une section par son CID.
 /// Body attendu : { "cid": "LEGISCTA000..." }
 pub async fn get_section_by_cid(client: &PisteClient, cid: &str) -> Result<Value> {
-    let url = format!("{}/consult/getSectionByCid", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getSectionByCid", client.legifrance_base());
     let body = json!({ "cid": cid });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -652,7 +656,7 @@ pub async fn get_loda_part(
     text_cid: &str,
     date: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/legiPart", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/legiPart", client.legifrance_base());
     let date_str = date
         .map(|d| d.to_string())
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
@@ -676,7 +680,7 @@ pub async fn get_loda_part_with_search(
     date: Option<&str>,
     searched_string: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/legiPart", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/legiPart", client.legifrance_base());
     let date_str = date
         .map(|d| d.to_string())
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
@@ -696,7 +700,7 @@ pub async fn get_loda_part_with_search(
 /// L'API POST /consult/juri attend { "textId": "JURITEXT..." }
 /// (JuriConsultRequest), pas { "id": "..." }.
 pub async fn get_juri(client: &PisteClient, text_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/juri", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/juri", client.legifrance_base());
     let body = json!({ "textId": text_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -704,7 +708,7 @@ pub async fn get_juri(client: &PisteClient, text_id: &str) -> Result<Value> {
 /// Récupère un texte du JORF complet par son NOR.
 /// Body attendu : { "nor": "..." }
 pub async fn get_jorf_by_nor(client: &PisteClient, nor: &str) -> Result<Value> {
-    let url = format!("{}/consult/getJoWithNor", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getJoWithNor", client.legifrance_base());
     let body = json!({ "nor": nor });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -713,7 +717,7 @@ pub async fn get_jorf_by_nor(client: &PisteClient, nor: &str) -> Result<Value> {
 /// Body attendu : { "id": "..." } — correct dans la version initiale.
 #[allow(dead_code)]
 pub async fn get_jorf_cont(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/jorfCont", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/jorfCont", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -721,7 +725,7 @@ pub async fn get_jorf_cont(client: &PisteClient, id: &str) -> Result<Value> {
 /// Récupère une partie de JORF par son CID (JorfPartRequest).
 /// Body attendu : { "textCid": "JORFTEXT..." }
 pub async fn get_jorf_part(client: &PisteClient, text_cid: &str) -> Result<Value> {
-    let url = format!("{}/consult/jorfPart", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/jorfPart", client.legifrance_base());
     let body = json!({ "textCid": text_cid });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -738,7 +742,7 @@ pub async fn get_code_table_matieres(
     cid: &str,
     date: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/code/tableMatieres", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/code/tableMatieres", client.legifrance_base());
     let date_str = date
         .map(|d| d.to_string())
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
@@ -763,7 +767,7 @@ pub async fn get_code_consult(
     date: Option<&str>,
     sct_cid: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/code", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/code", client.legifrance_base());
     let date_str = date
         .map(|d| d.to_string())
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
@@ -780,7 +784,7 @@ pub async fn get_code_consult(
 /// Récupère la table des matières globale Légifrance (liste des codes).
 #[allow(dead_code)]
 pub async fn get_legi_table_matieres(client: &PisteClient) -> Result<Value> {
-    let url = format!("{}/consult/legi/tableMatieres", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/legi/tableMatieres", client.legifrance_base());
     let body = json!({});
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -790,7 +794,7 @@ pub async fn get_legi_table_matieres(client: &PisteClient) -> Result<Value> {
 /// Récupère un texte de convention collective KALI par son id.
 /// Body attendu : { "id": "KALITEXT..." } (KaliTextConsultRequest).
 pub async fn get_kali_text(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/kaliText", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/kaliText", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -798,21 +802,21 @@ pub async fn get_kali_text(client: &PisteClient, id: &str) -> Result<Value> {
 /// Récupère un article de convention collective KALI par son id.
 /// Body attendu : { "id": "KALIARTI..." } (KaliTextConsultArticleRequest).
 pub async fn get_kali_article(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/kaliArticle", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/kaliArticle", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Récupère un conteneur KALI par son id.
 pub async fn get_kali_cont(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/kaliCont", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/kaliCont", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Récupère un conteneur KALI par son IDCC.
 pub async fn get_kali_cont_idcc(client: &PisteClient, idcc: &str) -> Result<Value> {
-    let url = format!("{}/consult/kaliContIdcc", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/kaliContIdcc", client.legifrance_base());
     let body = json!({ "idcc": idcc });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -825,7 +829,7 @@ pub async fn get_kali_cont_idcc(client: &PisteClient, idcc: &str) -> Result<Valu
 /// L'API attend { "textId": "..." } (CnilConsultRequest),
 /// pas { "id": "..." }.
 pub async fn get_cnil(client: &PisteClient, text_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/cnil", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/cnil", client.legifrance_base());
     let body = json!({ "textId": text_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -835,7 +839,7 @@ pub async fn get_cnil(client: &PisteClient, text_id: &str) -> Result<Value> {
 /// Récupère une circulaire par son id.
 /// Body attendu : { "id": "..." } — correct.
 pub async fn get_circulaire(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/circulaire", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/circulaire", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -845,7 +849,7 @@ pub async fn get_circulaire(client: &PisteClient, id: &str) -> Result<Value> {
 /// Récupère un accord d'entreprise par son id.
 /// Body attendu : { "id": "..." } (AccoConsultRequest).
 pub async fn get_acco(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/acco", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/acco", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -855,7 +859,7 @@ pub async fn get_acco(client: &PisteClient, id: &str) -> Result<Value> {
 /// Récupère un dossier législatif par son id.
 /// Body attendu : { "id": "..." } (DossierLegislatifRequest).
 pub async fn get_dossier_legislatif(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/dossierLegislatif", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/dossierLegislatif", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -881,7 +885,7 @@ pub async fn list_loda(
     signature_date_start: Option<String>,
     signature_date_end: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/loda", LEGIFRANCE_BASE);
+    let url = format!("{}/list/loda", client.legifrance_base());
     let page_number = page_number.max(1);
     let page_size = page_size.clamp(1, 100);
 
@@ -929,7 +933,7 @@ pub async fn list_codes(
     states: Option<Vec<String>>,
     sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/code", LEGIFRANCE_BASE);
+    let url = format!("{}/list/code", client.legifrance_base());
     let page_number = page_number.max(1);
     let page_size = page_size.clamp(1, 100);
 
@@ -976,7 +980,7 @@ pub async fn suggest(
     query: &str,
     supplies: Option<Vec<String>>,
 ) -> Result<Value> {
-    let url = format!("{}/suggest", LEGIFRANCE_BASE);
+    let url = format!("{}/suggest", client.legifrance_base());
     let supplies_val = supplies.unwrap_or_else(|| vec!["ALL_SUGGEST".to_string()]);
     let body = json!({
         "searchText": query,
@@ -994,7 +998,7 @@ pub async fn suggest(
 /// Vérifie la disponibilité du service Légifrance (endpoint /consult/ping).
 #[allow(dead_code)]
 pub async fn ping(client: &PisteClient) -> Result<Value> {
-    let url = format!("{}/consult/ping", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/ping", client.legifrance_base());
     client.get_json::<Value>(&url).await
 }
 
@@ -1009,7 +1013,7 @@ pub async fn chrono_text(
     start_year: i32,
     end_year: i32,
 ) -> Result<Value> {
-    let url = format!("{}/chrono/textCid", LEGIFRANCE_BASE);
+    let url = format!("{}/chrono/textCid", client.legifrance_base());
     let body = json!({
         "textCid": text_cid,
         "dateConsult": date_consult,
@@ -1026,7 +1030,7 @@ pub async fn chrono_article(
     text_cid: &str,
     element_cid: &str,
 ) -> Result<Value> {
-    let url = format!("{}/chrono/textCidAndElementCid", LEGIFRANCE_BASE);
+    let url = format!("{}/chrono/textCidAndElementCid", client.legifrance_base());
     let body = json!({
         "textCid": text_cid,
         "elementCid": element_cid,
@@ -1039,7 +1043,10 @@ pub async fn chrono_article(
 /// Liens de concordance d'un article.
 /// Body : { "articleId": "LEGIARTI..." }
 pub async fn get_concordance_links(client: &PisteClient, article_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/concordanceLinksArticle", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/consult/concordanceLinksArticle",
+        client.legifrance_base()
+    );
     let body = json!({ "articleId": article_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1047,7 +1054,7 @@ pub async fn get_concordance_links(client: &PisteClient, article_id: &str) -> Re
 /// Liens relatifs d'un article.
 /// Body : { "articleId": "LEGIARTI..." }
 pub async fn get_related_links(client: &PisteClient, article_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/relatedLinksArticle", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/relatedLinksArticle", client.legifrance_base());
     let body = json!({ "articleId": article_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1061,7 +1068,7 @@ pub async fn get_same_num_article(
     date: &str,
     article_num: &str,
 ) -> Result<Value> {
-    let url = format!("{}/consult/sameNumArticle", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/sameNumArticle", client.legifrance_base());
     let body = json!({
         "textCid": text_cid,
         "articleCid": article_cid,
@@ -1078,7 +1085,10 @@ pub async fn get_service_public_links(
     article_cid: &str,
     fond: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/servicePublicLinksArticle", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/consult/servicePublicLinksArticle",
+        client.legifrance_base()
+    );
     let mut body = json!({ "articleCid": article_cid });
     if let Some(f) = fond {
         body["fond"] = json!(f);
@@ -1091,7 +1101,10 @@ pub async fn get_service_public_links(
 /// Récupère un texte JORF par son identifiant ELI ou alias.
 /// Body : { "idEliOrAlias": "/eli/decret/..." }
 pub async fn get_jorf_by_eli(client: &PisteClient, id_eli_or_alias: &str) -> Result<Value> {
-    let url = format!("{}/consult/eliAndAliasRedirectionTexte", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/consult/eliAndAliasRedirectionTexte",
+        client.legifrance_base()
+    );
     let body = json!({ "idEliOrAlias": id_eli_or_alias });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1099,7 +1112,10 @@ pub async fn get_jorf_by_eli(client: &PisteClient, id_eli_or_alias: &str) -> Res
 /// Récupère un article par son identifiant ELI ou alias.
 /// Body : { "idEliOrAlias": "/eli/decret/..." }
 pub async fn get_article_by_eli(client: &PisteClient, id_eli_or_alias: &str) -> Result<Value> {
-    let url = format!("{}/consult/getArticleWithIdEliOrAlias", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/consult/getArticleWithIdEliOrAlias",
+        client.legifrance_base()
+    );
     let body = json!({ "idEliOrAlias": id_eli_or_alias });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1108,21 +1124,21 @@ pub async fn get_article_by_eli(client: &PisteClient, id_eli_or_alias: &str) -> 
 
 /// Récupère un texte JURI par son ancien identifiant.
 pub async fn get_juri_by_ancien_id(client: &PisteClient, ancien_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/getJuriWithAncienId", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getJuriWithAncienId", client.legifrance_base());
     let body = json!({ "ancienId": ancien_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Récupère un Code par son ancien identifiant.
 pub async fn get_code_by_ancien_id(client: &PisteClient, ancien_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/getCodeWithAncienId", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getCodeWithAncienId", client.legifrance_base());
     let body = json!({ "ancienId": ancien_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Récupère un texte CNIL par son ancien identifiant.
 pub async fn get_cnil_by_ancien_id(client: &PisteClient, ancien_id: &str) -> Result<Value> {
-    let url = format!("{}/consult/getCnilWithAncienId", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getCnilWithAncienId", client.legifrance_base());
     let body = json!({ "ancienId": ancien_id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1136,7 +1152,7 @@ pub async fn get_jorf(
     text_cid: &str,
     searched_string: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/jorf", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/jorf", client.legifrance_base());
     let mut body = json!({ "textCid": text_cid });
     if let Some(s) = searched_string {
         body["searchedString"] = json!(s);
@@ -1149,7 +1165,7 @@ pub async fn get_jorf(
 /// Récupère un débat parlementaire par son identifiant.
 /// Body : { "id": "AN_2020-090.pdf" }
 pub async fn get_debat(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/debat", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/debat", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1158,7 +1174,7 @@ pub async fn get_debat(client: &PisteClient, id: &str) -> Result<Value> {
 
 /// Récupère le contenu d'une section KALI par son identifiant.
 pub async fn get_kali_section(client: &PisteClient, id: &str) -> Result<Value> {
-    let url = format!("{}/consult/kaliSection", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/kaliSection", client.legifrance_base());
     let body = json!({ "id": id });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1177,7 +1193,7 @@ pub async fn get_juri_plan_classement(
     search_suggest: bool,
     search_by_niveau: bool,
 ) -> Result<Value> {
-    let url = format!("{}/consult/getJuriPlanClassement", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getJuriPlanClassement", client.legifrance_base());
     let mut body = json!({
         "searchSuggest": search_suggest,
         "searchByNiveau": search_by_niveau,
@@ -1205,7 +1221,7 @@ pub async fn get_juri_plan_classement(
 /// Récupère les N derniers Journaux Officiels.
 /// Body : { "nbElement": N }
 pub async fn get_last_n_jo(client: &PisteClient, nb_element: u32) -> Result<Value> {
-    let url = format!("{}/consult/lastNJo", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/lastNJo", client.legifrance_base());
     let body = json!({ "nbElement": nb_element });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1219,7 +1235,7 @@ pub async fn get_tables(
     end_year: i32,
     start_year: Option<i32>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/getTables", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/getTables", client.legifrance_base());
     let mut body = json!({ "endYear": end_year });
     if let Some(y) = start_year {
         body["startYear"] = json!(y);
@@ -1238,7 +1254,7 @@ pub async fn get_law_decree(
     from_suggest: bool,
     searched_string: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/lawDecree", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/lawDecree", client.legifrance_base());
     let date_str = date
         .map(|d| d.to_string())
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
@@ -1263,7 +1279,7 @@ pub async fn get_legi_table_matieres_v2(
     date: Option<&str>,
     nature: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/consult/legi/tableMatieres", LEGIFRANCE_BASE);
+    let url = format!("{}/consult/legi/tableMatieres", client.legifrance_base());
     let date_str = date
         .map(|d| d.to_string())
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
@@ -1285,7 +1301,10 @@ pub async fn get_bocc_pdf_metadata(
     id: Option<&str>,
     for_global_bocc: bool,
 ) -> Result<Value> {
-    let url = format!("{}/consult/getBoccTextPdfMetadata", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/consult/getBoccTextPdfMetadata",
+        client.legifrance_base()
+    );
     let mut body = json!({ "forGlobalBocc": for_global_bocc });
     if let Some(v) = id {
         body["id"] = json!(v);
@@ -1304,7 +1323,7 @@ pub async fn list_bocc(
     idcc: Option<String>,
     sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/bocc", LEGIFRANCE_BASE);
+    let url = format!("{}/list/bocc", client.legifrance_base());
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1337,7 +1356,7 @@ pub async fn list_bocc_texts(
     titre: Option<String>,
     sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/boccTexts", LEGIFRANCE_BASE);
+    let url = format!("{}/list/boccTexts", client.legifrance_base());
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1366,7 +1385,7 @@ pub async fn list_boccs_and_texts(
     interval_publication: Option<String>,
     sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/boccsAndTexts", LEGIFRANCE_BASE);
+    let url = format!("{}/list/boccsAndTexts", client.legifrance_base());
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1393,7 +1412,7 @@ pub async fn list_bodmr(
     years: Option<Vec<i32>>,
     sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/bodmr", LEGIFRANCE_BASE);
+    let url = format!("{}/list/bodmr", client.legifrance_base());
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1421,7 +1440,7 @@ pub async fn list_conventions(
     key_words: Option<Vec<String>>,
     sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/conventions", LEGIFRANCE_BASE);
+    let url = format!("{}/list/conventions", client.legifrance_base());
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1456,7 +1475,7 @@ pub async fn list_debats_parlementaires(
     sort: Option<String>,
     second_sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/debatsParlementaires", LEGIFRANCE_BASE);
+    let url = format!("{}/list/debatsParlementaires", client.legifrance_base());
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1480,7 +1499,7 @@ pub async fn list_debats_parlementaires(
 
 /// Liste les documents administratifs.
 pub async fn list_docs_admins(client: &PisteClient, years: Option<Vec<i32>>) -> Result<Value> {
-    let url = format!("{}/list/docsAdmins", LEGIFRANCE_BASE);
+    let url = format!("{}/list/docsAdmins", client.legifrance_base());
     let mut body = json!({});
     if let Some(v) = years {
         body["years"] = json!(v);
@@ -1496,7 +1515,7 @@ pub async fn list_dossiers_legislatifs(
     type_: &str,
     legislature_id: i32,
 ) -> Result<Value> {
-    let url = format!("{}/list/dossiersLegislatifs", LEGIFRANCE_BASE);
+    let url = format!("{}/list/dossiersLegislatifs", client.legifrance_base());
     let body = json!({
         "type": type_,
         "legislatureId": legislature_id,
@@ -1506,7 +1525,7 @@ pub async fn list_dossiers_legislatifs(
 
 /// Liste les législatures disponibles.
 pub async fn list_legislatures(client: &PisteClient) -> Result<Value> {
-    let url = format!("{}/list/legislatures", LEGIFRANCE_BASE);
+    let url = format!("{}/list/legislatures", client.legifrance_base());
     let body = json!({});
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1523,7 +1542,10 @@ pub async fn list_questions_ecrites(
     sort: Option<String>,
     second_sort: Option<String>,
 ) -> Result<Value> {
-    let url = format!("{}/list/questionsEcritesParlementaires", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/list/questionsEcritesParlementaires",
+        client.legifrance_base()
+    );
     let mut body = json!({
         "pageNumber": page_number.max(1),
         "pageSize": page_size.clamp(1, 100),
@@ -1551,21 +1573,24 @@ pub async fn list_questions_ecrites(
 /// de l'API Legifrance (endpoints `/search/*`).
 #[allow(dead_code)]
 pub async fn search_canonical_version(client: &PisteClient, body: Value) -> Result<Value> {
-    let url = format!("{}/search/canonicalVersion", LEGIFRANCE_BASE);
+    let url = format!("{}/search/canonicalVersion", client.legifrance_base());
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Recherche la version canonique d'un article.
 #[allow(dead_code)]
 pub async fn search_canonical_article_version(client: &PisteClient, body: Value) -> Result<Value> {
-    let url = format!("{}/search/canonicalArticleVersion", LEGIFRANCE_BASE);
+    let url = format!(
+        "{}/search/canonicalArticleVersion",
+        client.legifrance_base()
+    );
     client.post_json::<Value, Value>(&url, &body).await
 }
 
 /// Recherche la version la plus proche d'une date.
 #[allow(dead_code)]
 pub async fn search_nearest_version(client: &PisteClient, body: Value) -> Result<Value> {
-    let url = format!("{}/search/nearestVersion", LEGIFRANCE_BASE);
+    let url = format!("{}/search/nearestVersion", client.legifrance_base());
     client.post_json::<Value, Value>(&url, &body).await
 }
 
@@ -1573,7 +1598,7 @@ pub async fn search_nearest_version(client: &PisteClient, body: Value) -> Result
 
 /// Suggestions spécifiques aux accords d'entreprise.
 pub async fn suggest_acco(client: &PisteClient, search_text: &str) -> Result<Value> {
-    let url = format!("{}/suggest/acco", LEGIFRANCE_BASE);
+    let url = format!("{}/suggest/acco", client.legifrance_base());
     let body = json!({ "searchText": search_text });
     client.post_json::<Value, Value>(&url, &body).await
 }
@@ -1585,7 +1610,7 @@ pub async fn suggest_pdc(
     fond: Option<&str>,
     origin: Option<&str>,
 ) -> Result<Value> {
-    let url = format!("{}/suggest/pdc", LEGIFRANCE_BASE);
+    let url = format!("{}/suggest/pdc", client.legifrance_base());
     let mut body = json!({ "searchText": search_text });
     if let Some(v) = fond {
         body["fond"] = json!(v);
@@ -1600,6 +1625,6 @@ pub async fn suggest_pdc(
 
 /// Dates sans Journal Officiel (jours fériés, etc.).
 pub async fn get_dates_without_jo(client: &PisteClient) -> Result<Value> {
-    let url = format!("{}/misc/datesWithoutJo", LEGIFRANCE_BASE);
+    let url = format!("{}/misc/datesWithoutJo", client.legifrance_base());
     client.get_json::<Value>(&url).await
 }

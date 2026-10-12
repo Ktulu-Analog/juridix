@@ -14,6 +14,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../constants';
+import { OfficialMcpPanel } from './OfficialMcpPanel';
+import { DataPrivacyModal } from './DataPrivacyModal';
+import { McpAuthDialog } from './McpAuthDialog';
+import { listGrants, needsGrant } from '../utils/mcpGrants';
 
 // Applique immédiatement les préférences de police sur :root pour preview live
 function applyFontPrefs(fontFamily?: string, fontSize?: number) {
@@ -43,6 +47,12 @@ export interface Settings {
   font_size?: number;
   piste_client_id?: string;
   piste_client_secret?: string;
+  /** Pré-filtre local Winnow (Ollaya) : écarte les passages hors sujet avant
+   *  l'envoi au LLM lors de l'analyse d'un dossier. Désactivé par défaut —
+   *  voir docs/WINNOW.md. Contrairement aux autres réglages Winnow (URL du
+   *  serveur, modèle, seuils), qui restent en .env car ce sont des détails
+   *  d'installation locale, celui-ci est une préférence d'usage. */
+  winnow_enabled?: boolean;
 }
 
 interface McpTool {
@@ -81,10 +91,33 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+/** Vrai si l'URL d'un serveur MCP désigne une autre machine que la machine locale. */
+function isRemoteMcpUrl(url: string): boolean {
+  if (/^stdio:/i.test(url)) return false;
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return !(h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h.endsWith('.localhost'));
+  } catch {
+    return true;
+  }
+}
+
+function hostOfUrl(url: string): string {
+  try { return new URL(url).host; } catch { return url; }
+}
+
 export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
   const [form, setForm]         = useState<Settings>({ ...settings, mcp_servers: settings.mcp_servers || [] });
   const [newMcp, setNewMcp]     = useState('');
   const [newMcpAlias, setNewMcpAlias] = useState('');
+  // Serveur MCP HTTP distant en attente de confirmation explicite de l'utilisateur.
+  const [showData, setShowData] = useState(false);
+  // Autorisations MCP : serveurs déjà autorisés (côté backend) et serveur en cours d'examen.
+  const [granted, setGranted] = useState<Set<string>>(new Set());
+  const [authFor, setAuthFor] = useState<{ server: string; alias?: string } | null>(null);
+  const refreshGrants = () => { listGrants().then(g => setGranted(new Set(g.map(x => x.server)))).catch(() => { /* hors application */ }); };
+  useEffect(() => { refreshGrants(); }, []);
+  const [pendingRemote, setPendingRemote] = useState<{ url: string; alias?: string } | null>(null);
   const [resetting, setResetting] = useState(false);
   const [resetDone, setResetDone] = useState(false);
 
@@ -107,15 +140,30 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
   const canSave = !!(form.endpoint && form.bearer && form.model);
 
-  const addMcp = () => {
-    let url = newMcp.trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
-    if ((form.mcp_servers || []).some(s => s.url === url)) { setNewMcp(''); setNewMcpAlias(''); return; }
-    const alias = newMcpAlias.trim() || undefined;
+  // Un serveur MCP HTTP « distant » (hors localhost) reçoit le contenu des requêtes
+  // que le modèle lui adresse (extraits de vos questions et de vos dossiers) et peut
+  // renvoyer des contenus qui influencent le modèle : ajout soumis à confirmation.
+  const addMcpServer = (url: string, alias?: string) => {
     setForm(f => ({ ...f, mcp_servers: [...(f.mcp_servers || []), { url, alias }] }));
     setNewMcp('');
     setNewMcpAlias('');
+    setPendingRemote(null);
+    // Un serveur externe n'est utilisé par le modèle qu'une fois autorisé : on propose
+    // l'autorisation globale tout de suite (liste de tous ses outils, un seul clic).
+    if (needsGrant(url)) setAuthFor({ server: url, alias });
+  };
+
+  const addMcp = () => {
+    let url = newMcp.trim();
+    if (!url) return;
+    // `stdio:<id>` : serveur local lancé par Juridix (importé depuis le panneau « Serveurs
+    // officiels » ci-dessus). Le frontend ne transmet que l'identifiant, jamais une commande.
+    if (/^stdio:/i.test(url)) url = 'stdio:' + url.slice('stdio:'.length).replace(/^\/+/, '').trim();
+    else if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
+    if ((form.mcp_servers || []).some(s => s.url === url)) { setNewMcp(''); setNewMcpAlias(''); return; }
+    const alias = newMcpAlias.trim() || undefined;
+    if (isRemoteMcpUrl(url)) { setPendingRemote({ url, alias }); return; }
+    addMcpServer(url, alias);
   };
 
   const removeMcp = (i: number) =>
@@ -163,6 +211,15 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                 <div className="mcp-web-card__fields">
                   <input className="field-input" value={form.web_search_mcp || ''} onChange={update('web_search_mcp')} placeholder="http://localhost:6503/mcp" />
                   <input className="field-input mcp-web-alias-input" value={form.web_search_mcp_alias || ''} onChange={update('web_search_mcp_alias')} placeholder="Nom affiché (ex : Recherche web)" />
+                  {form.web_search_mcp?.trim() && needsGrant(form.web_search_mcp.trim()) && (
+                    <button
+                      className={granted.has(form.web_search_mcp.trim()) ? 'mcp-grant-badge mcp-grant-badge--ok' : 'mcp-grant-badge mcp-grant-badge--todo'}
+                      onClick={() => setAuthFor({ server: form.web_search_mcp!.trim(), alias: form.web_search_mcp_alias || undefined })}
+                      title="Autorisation du serveur de recherche web : le modèle ne l'utilise qu'après examen et autorisation de ses outils."
+                    >
+                      {granted.has(form.web_search_mcp.trim()) ? '✔ autorisé' : '⏳ à autoriser'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -265,6 +322,29 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               </span>
             </div>
 
+            <label className="field-checkbox-row" htmlFor="winnow-enabled-checkbox">
+              <input
+                id="winnow-enabled-checkbox"
+                type="checkbox"
+                checked={!!form.winnow_enabled}
+                onChange={(e) => setForm(f => ({ ...f, winnow_enabled: e.target.checked }))}
+              />
+              <span>
+                🌾 Pré-filtre local Winnow
+                <span className="field-label-hint">expérimental</span>
+              </span>
+            </label>
+            <div className="field-hint">
+              <span className="hint-icon">🔒</span>
+              <span>
+                Avant l'envoi au LLM, un modèle de décision servi <strong>localement</strong> par{' '}
+                <a href="https://ollaya.dev" target="_blank" rel="noreferrer">Ollaya</a> écarte les
+                passages d'un dossier jugés hors sujet ou sans contenu juridique. Aucune donnée ne sort
+                de votre machine pour ce filtrage. Nécessite Ollaya installé et lancé séparément — voir{' '}
+                <code>docs/WINNOW.md</code>. Chaque omission reste signalée et consultable.
+              </span>
+            </div>
+
             <div className="settings-section-title" style={{ marginTop: 8 }}>Apparence</div>
 
             <div className="field-group">
@@ -319,6 +399,13 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               Aperçu — <em>italique</em>, <strong>gras</strong>, 0123.
             </div>
 
+            <div className="settings-section-title" style={{ marginTop: 8 }}>Données</div>
+            <div className="field-hint">
+              <span className="hint-icon">🔒</span>
+              <span>Exporter vos données, supprimer la sauvegarde en clair ou tout effacer (RGPD).</span>
+            </div>
+            <button className="btn-ghost" onClick={() => setShowData(true)}>Données et confidentialité…</button>
+
             <div style={{ flex: 1 }} />
           </div>
 
@@ -332,6 +419,16 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               <span className="hint-icon">🔌</span>
               <span>Connecteurs qui étendent les capacités du LLM (filesystem, calendrier, SIRH…)</span>
             </div>
+
+            <OfficialMcpPanel
+              enabledUrls={(form.mcp_servers || []).map(s => s.url)}
+              onToggle={(url, alias, on) =>
+                setForm(f => {
+                  const rest = (f.mcp_servers || []).filter(s => s.url !== url);
+                  return { ...f, mcp_servers: on ? [...rest, { url, alias }] : rest };
+                })
+              }
+            />
 
             <div className="mcp-cards-list">
               {(form.mcp_servers || []).length === 0 && (
@@ -353,6 +450,25 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                         placeholder="Nom du serveur…"
                         spellCheck={false}
                       />
+                      {isRemoteMcpUrl(srv.url) && (
+                        <span
+                          className="mcp-card__ext"
+                          title="Serveur distant : il reçoit le contenu des requêtes que le modèle lui envoie"
+                        >
+                          ⚠ distant
+                        </span>
+                      )}
+                      {needsGrant(srv.url) && (
+                        <button
+                          className={granted.has(srv.url) ? 'mcp-grant-badge mcp-grant-badge--ok' : 'mcp-grant-badge mcp-grant-badge--todo'}
+                          onClick={() => setAuthFor({ server: srv.url, alias: srv.alias })}
+                          title={granted.has(srv.url)
+                            ? 'Autorisé : le modèle peut utiliser les outils de ce serveur. Cliquer pour examiner ou retirer.'
+                            : 'Non autorisé : le modèle n\'utilise pas ce serveur tant que vous n\'avez pas examiné et autorisé ses outils.'}
+                        >
+                          {granted.has(srv.url) ? '✔ autorisé' : '⏳ à autoriser'}
+                        </button>
+                      )}
                       <button className="mcp-card__remove" onClick={() => removeMcp(i)} title="Supprimer">✕</button>
                     </div>
                     <span className="mcp-card__url" title={srv.url}>{srv.url}</span>
@@ -360,6 +476,26 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                 </div>
               ))}
             </div>
+
+            {pendingRemote && (
+              <div className="mcp-warn" role="alertdialog" aria-label="Confirmer l'ajout d'un serveur MCP distant">
+                <div className="mcp-warn__title">⚠️ Serveur MCP distant : {hostOfUrl(pendingRemote.url)}</div>
+                <div>
+                  Ce serveur recevra le contenu des requêtes que le modèle lui envoie (extraits de vos
+                  questions et de vos dossiers) et pourra renvoyer des contenus qui influencent les
+                  réponses. N'ajoutez qu'un serveur que vous maîtrisez ou en qui vous avez confiance.
+                </div>
+                <div className="mcp-warn__actions">
+                  <button className="mcp-warn__btn" onClick={() => setPendingRemote(null)}>Annuler</button>
+                  <button
+                    className="mcp-warn__btn mcp-warn__btn--confirm"
+                    onClick={() => addMcpServer(pendingRemote.url, pendingRemote.alias)}
+                  >
+                    Ajouter quand même
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mcp-add-card">
               <div className="mcp-add-card__icon">＋</div>
@@ -384,6 +520,15 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               <button className="mcp-add-btn" onClick={addMcp}>Ajouter</button>
             </div>
 
+            <div className="field-hint mcp-warn-note">
+              <span className="hint-icon">⚠️</span>
+              <span>
+                Un serveur MCP distant (hors <code>localhost</code>) reçoit le contenu des requêtes du
+                modèle et peut en influencer les réponses. Préférez les serveurs officiels ci-dessus ou
+                des serveurs locaux, et n'ajoutez que des serveurs de confiance.
+              </span>
+            </div>
+
             <div className="field-hint">
               <span className="hint-icon">💡</span>
               <span>Ces paramètres sont sauvegardés localement et ne sont jamais transmis à un tiers.</span>
@@ -405,6 +550,14 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
           <button className="btn-primary" onClick={() => { onSave(form); onClose(); }} disabled={!canSave}>Enregistrer</button>
         </div>
       </div>
+      {showData && <DataPrivacyModal onClose={() => setShowData(false)} />}
+      {authFor && (
+        <McpAuthDialog
+          server={authFor.server}
+          alias={authFor.alias}
+          onClose={() => { setAuthFor(null); refreshGrants(); }}
+        />
+      )}
     </div>
   );
 }
@@ -553,7 +706,7 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
         <div className="about-info">
           <div className="about-meta">
             <div className="about-row"><span className="about-key">Auteur</span><span className="about-val">Pierre COUGET</span></div>
-            <div className="about-row"><span className="about-key">Version</span><span className="about-val">v1.0.0</span></div>
+            <div className="about-row"><span className="about-key">Version</span><span className="about-val">v1.1.4</span></div>
             <div className="about-row">
               <span className="about-key">Contact</span>
               <a className="about-val about-link" href="mailto:ktulu.analog@gmail.com">ktulu.analog@gmail.com ↗</a>

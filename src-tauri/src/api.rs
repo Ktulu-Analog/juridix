@@ -18,6 +18,43 @@ use tokio::sync::RwLock;
 use crate::config;
 
 /// Tronque une string UTF-8 à `max_bytes` octets sans couper un caractère multi-octet.
+// ── Provenance des citations (chantier 4) ─────────────────────────────────────
+//
+// Le LLM ne cite « de source » que ce qu'on lui a fourni : documents du prompt
+// (connus du frontend), mais aussi résultats d'outils MCP et extraits RAG, que
+// seul ce backend voit. On en tire des *clés* compactes (articles de codes,
+// textes hors codes — cf. `juridique::verify::grounding_keys`) renvoyées au
+// frontend dans un événement SSE `grounding`, sans jamais renvoyer les textes.
+// Le vérificateur de citations s'en sert pour distinguer ce qui vient des
+// sources fournies de ce que le modèle a tiré de sa mémoire.
+
+/// Plafond de clés renvoyées par tour (garde-fou sur la taille du flux).
+const MAX_GROUNDING_KEYS: usize = 5000;
+
+fn add_grounding<'a>(
+    keys: &mut std::collections::BTreeSet<String>,
+    texts: impl IntoIterator<Item = &'a str>,
+) {
+    for t in texts {
+        if keys.len() >= MAX_GROUNDING_KEYS {
+            break;
+        }
+        keys.extend(crate::juridique::verify::grounding_keys(t));
+    }
+}
+
+/// Événement SSE `grounding`, ou `None` s'il n'y a aucune clé.
+fn grounding_sse(keys: &std::collections::BTreeSet<String>) -> Option<String> {
+    if keys.is_empty() {
+        return None;
+    }
+    let list: Vec<&String> = keys.iter().take(MAX_GROUNDING_KEYS).collect();
+    Some(format!(
+        "event: grounding\ndata: {}\n\n",
+        serde_json::to_string(&json!({ "keys": list })).unwrap_or_default()
+    ))
+}
+
 fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
@@ -32,6 +69,7 @@ fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode},
+    middleware::from_fn_with_state,
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post, put},
     Json, Router,
@@ -40,7 +78,6 @@ use bytes::Bytes;
 use futures::stream::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
-use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 
 use crate::juridique::{juridique_router, HasJuridiqueState, JuridiqueState};
@@ -288,6 +325,8 @@ pub struct AppState {
     pub prompts_path: PathBuf,
     pub credentials: Arc<RwLock<Credentials>>,
     pub juridique: JuridiqueState,
+    /// Jeton aléatoire exigé par l'API HTTP locale (cf. `security.rs`).
+    pub api_token: String,
 }
 
 impl HasJuridiqueState for AppState {
@@ -308,17 +347,15 @@ pub fn build_router(db: Database, prompts_path: PathBuf) -> (Router, Arc<AppStat
             .ok()
             .filter(|s| !s.trim().is_empty()),
     );
+    let api_token = crate::security::generate_token();
+    let guard_state = crate::security::ApiGuard::new(api_token.clone(), config::api_port());
     let state = Arc::new(AppState {
         db,
         prompts_path,
         credentials,
         juridique,
+        api_token,
     });
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
 
     let router = Router::new()
         // Spaces
@@ -376,16 +413,27 @@ pub fn build_router(db: Database, prompts_path: PathBuf) -> (Router, Arc<AppStat
         )
         // MCP
         .route("/api/mcp/tools", post(mcp_list_tools))
+        .route("/api/mcp/grants", get(mcp_grants_list).put(mcp_grants_put))
+        .route("/api/mcp/grants/inspect", post(mcp_grants_inspect))
+        .route("/api/mcp/grants/revoke", post(mcp_grants_revoke))
+        .route("/api/mcp/stdio/servers", get(mcp_stdio_servers))
+        .route("/api/mcp/stdio/stop", post(mcp_stdio_stop))
+        .route("/api/mcp/stdio/tools", get(mcp_stdio_tools).post(mcp_stdio_set_tools))
+        .route("/api/mcp/stdio/pack-update", get(mcp_pack_check).post(mcp_pack_install))
         // Health
-        .route("/api/image-proxy", get(image_proxy))
         .route("/health", get(health))
         // Juridique
         .nest("/api/juridique", juridique_router::<AppState>())
+        // Veille juridique
+        .nest("/api/veilles", crate::veille::router())
         // Proxy for frontend (api-proxy prefix)
         .nest("/api-proxy", build_proxy_router(state.clone()))
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
-        .layer(cors);
+        // Ordre des couches : la dernière ajoutée est la plus externe.
+        // CORS (restreint) doit répondre aux pré-vols avant le garde.
+        .layer(from_fn_with_state(guard_state, crate::security::guard))
+        .layer(crate::security::cors_layer());
     (router, state)
 }
 
@@ -440,87 +488,16 @@ fn build_proxy_router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
             post(upload_document).layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
         )
         .route("/api/mcp/tools", post(mcp_list_tools))
-        .route("/api/image-proxy", get(image_proxy))
+        .route("/api/mcp/grants", get(mcp_grants_list).put(mcp_grants_put))
+        .route("/api/mcp/grants/inspect", post(mcp_grants_inspect))
+        .route("/api/mcp/grants/revoke", post(mcp_grants_revoke))
+        .route("/api/mcp/stdio/servers", get(mcp_stdio_servers))
+        .route("/api/mcp/stdio/stop", post(mcp_stdio_stop))
+        .route("/api/mcp/stdio/tools", get(mcp_stdio_tools).post(mcp_stdio_set_tools))
+        .route("/api/mcp/stdio/pack-update", get(mcp_pack_check).post(mcp_pack_install))
         .route("/health", get(health))
         .nest("/api/juridique", juridique_router::<AppState>())
-}
-
-// ── Image proxy ───────────────────────────────────────────────────────────────
-// Fetche une image distante côté serveur pour contourner les blocages CORS/Referer.
-// Le frontend appelle /api-proxy/api/image-proxy?url=<encoded_url>
-
-#[derive(serde::Deserialize)]
-struct ImageProxyParams {
-    url: String,
-}
-
-async fn image_proxy(Query(params): Query<ImageProxyParams>) -> Response {
-    let target_url = params.url.trim().to_string();
-
-    // Sécurité minimale : n'accepter que http(s)
-    if !target_url.starts_with("http://") && !target_url.starts_with("https://") {
-        return err(StatusCode::BAD_REQUEST, "URL invalide");
-    }
-
-    let client = match Client::builder()
-        .timeout(config::timeout_image_proxy())
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    let resp = match client
-        .get(&target_url)
-        .header("Referer", "https://www.google.com/")
-        .header(
-            "Accept",
-            "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        )
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Fetch failed: {}", e)),
-    };
-
-    if !resp.status().is_success() {
-        return err(
-            StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
-            format!("Upstream returned {}", resp.status()),
-        );
-    }
-
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
-
-    // Refuser les réponses non-image pour éviter les abus
-    if !content_type.starts_with("image/") {
-        return err(
-            StatusCode::BAD_GATEWAY,
-            format!("Upstream content-type non-image: {}", content_type),
-        );
-    }
-
-    let body_bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Read failed: {}", e)),
-    };
-
-    use axum::http::header;
-    axum::response::Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, content_type)
-        .header("Cache-Control", "public, max-age=86400")
-        .header("Access-Control-Allow-Origin", "*")
-        .body(axum::body::Body::from(body_bytes))
-        .unwrap()
-        .into_response()
+        .nest("/api/veilles", crate::veille::router())
 }
 
 // ── Error helper ──────────────────────────────────────────────────────────────
@@ -1032,19 +1009,44 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
     // Si des serveurs MCP sont configurés ET que ce n'est pas un appel streaming,
     // on fait une boucle synchrone : LLM → tool_calls → résultats → LLM → ...
     // Le streaming est réservé à la réponse finale (sans tool_calls).
-    let mcp_tools: Vec<Value> = if !req.mcp_servers.is_empty() {
-        let all = crate::mcp::collect_all_tools(&client, &req.mcp_servers).await;
-        all.iter()
-            .map(|(server, tool)| crate::mcp::mcp_tool_to_openai(tool, server))
-            .collect()
-    } else {
-        vec![]
-    };
+    //
+    // Autorisation des serveurs (R-02, voir mcp_grants.rs) : seuls les serveurs officiels et les
+    // serveurs explicitement autorisés — dont les outils n'ont pas changé depuis l'autorisation —
+    // sont annoncés au modèle ET exécutables. Les autres sont écartés, et l'interface en est
+    // avertie (événement SSE `mcp_blocked`) sans interrompre la réponse.
+    let (authorized_servers, mcp_tools, blocked_sse): (Vec<String>, Vec<Value>, Bytes) =
+        if !req.mcp_servers.is_empty() {
+            let grants = state.db.list_mcp_grants().await.unwrap_or_default();
+            let gate = crate::mcp_grants::gate(&client, &grants, &req.mcp_servers).await;
+            for b in &gate.blocked {
+                warn!(
+                    "MCP: serveur {} non autorisé ({:?}) — ses outils ne sont pas exposés au modèle",
+                    b.server, b.status
+                );
+            }
+            let tools = gate
+                .tools
+                .iter()
+                .map(|(server, tool)| crate::mcp::mcp_tool_to_openai(tool, server))
+                .collect();
+            let sse = crate::mcp_grants::blocked_sse(&gate.blocked)
+                .map(Bytes::from)
+                .unwrap_or_default();
+            (gate.authorized, tools, sse)
+        } else {
+            (Vec::new(), Vec::new(), Bytes::new())
+        };
 
-    // Ajouter l'instruction MCP image si des serveurs MCP sont configurés
-    if !req.mcp_servers.is_empty() {
+    // Ajouter l'instruction MCP image si des serveurs MCP autorisés sont disponibles
+    if !authorized_servers.is_empty() {
         final_system.push_str(MCP_IMAGE_INSTRUCTION);
     }
+
+    // Noms des outils effectivement annoncés au modèle : seuls ceux-là peuvent être exécutés.
+    let advertised: std::collections::HashSet<String> = mcp_tools
+        .iter()
+        .filter_map(|t| t["function"]["name"].as_str().map(str::to_string))
+        .collect();
 
     // Si on a des tools MCP, on fait d'abord un appel non-streamé pour gérer les tool_calls
     if !mcp_tools.is_empty() {
@@ -1057,7 +1059,11 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
             .build()
             .unwrap_or_default();
 
-        let mut pending_sse_events: Vec<bytes::Bytes> = Vec::new();
+        let mut pending_sse_events: Vec<bytes::Bytes> =
+            if blocked_sse.is_empty() { Vec::new() } else { vec![blocked_sse.clone()] };
+        // Provenance : extraits RAG + résultats d'outils de ce tour (cf. grounding_sse).
+        let mut grounding: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        add_grounding(&mut grounding, rag_chunks_used.iter().map(|c| c.text.as_str()));
         for turn in 0..max_turns {
             let loop_payload = json!({
                 "model":      req.model,
@@ -1133,6 +1139,11 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
                     sse_chunks.push(Bytes::from(ev));
                 }
 
+                // Provenance des citations : clés des extraits RAG et résultats d'outils.
+                if let Some(ev) = grounding_sse(&grounding) {
+                    sse_chunks.push(Bytes::from(ev));
+                }
+
                 // Émettre d'abord les images MCP interceptées pendant les tours précédents
                 for ev in pending_sse_events.drain(..) {
                     sse_chunks.push(ev);
@@ -1192,18 +1203,35 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
                     // Format : mcp__{slug}__{tool_name}
                     let parts: Vec<&str> = fn_name.splitn(3, "__").collect();
                     let real_tool_name = if parts.len() == 3 { parts[2] } else { &fn_name };
-                    let server = req
-                        .mcp_servers
+                    let server = authorized_servers
                         .iter()
                         .find(|s| {
-                            fn_name.starts_with(&format!("mcp__{}", crate::mcp::server_slug(s)))
+                            // « __ » final : sans lui, le serveur « legifrance » capterait
+                            // aussi les outils de « legifrance_b » (préfixe commun).
+                            fn_name.starts_with(&format!("mcp__{}__", crate::mcp::server_slug(s)))
                         })
-                        .cloned()
-                        .unwrap_or_else(|| req.mcp_servers[0].clone());
+                        .cloned();
+                    // Jamais d'exécution d'un outil que nous n'avons pas annoncé (nom inventé ou
+                    // détourné par le modèle) ni d'un serveur non autorisé : l'ancien repli sur le
+                    // premier serveur de la liste est supprimé.
+                    let server = match server {
+                        Some(s) if advertised.contains(&fn_name) => s,
+                        _ => {
+                            warn!("MCP: appel refusé — outil non annoncé ou serveur non autorisé : {}", fn_name);
+                            loop_messages.push(json!({
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": "Outil indisponible : il n'a pas été annoncé pour cette conversation ou son serveur n'est pas autorisé.",
+                            }));
+                            continue;
+                        }
+                    };
 
                     info!("MCP: appel tool {} sur {}", real_tool_name, server);
                     let mcp_result =
                         crate::mcp::call_tool(&client, &server, real_tool_name, &fn_args).await;
+                    // Ce que l'outil a ramené compte comme « fourni au modèle ».
+                    add_grounding(&mut grounding, [mcp_result.text.as_str()]);
 
                     // Si le tool a retourné une image, l'émettre immédiatement via SSE
                     // avant de repasser au LLM (qui ne reçoit que le texte).
@@ -1282,10 +1310,16 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
                     })
                 })
                 .collect();
-            let event = format!(
+            let mut event = format!(
                 "event: rag_sources\ndata: {}\n\n",
                 serde_json::to_string(&json!({ "sources": sources })).unwrap_or_default()
             );
+            // Provenance des citations : clés des extraits RAG fournis au modèle.
+            let mut grounding = std::collections::BTreeSet::new();
+            add_grounding(&mut grounding, rag_chunks_used.iter().map(|c| c.text.as_str()));
+            if let Some(g) = grounding_sse(&grounding) {
+                event.push_str(&g);
+            }
             bytes::Bytes::from(event)
         } else {
             bytes::Bytes::new()
@@ -1298,6 +1332,15 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
         use axum::body::Body;
         use axum::http::header;
         use futures::stream;
+
+        // L'avertissement « serveur MCP non autorisé » précède les autres événements du flux.
+        let rag_prefix: bytes::Bytes = if blocked_sse.is_empty() {
+            rag_prefix
+        } else {
+            let mut v = blocked_sse.to_vec();
+            v.extend_from_slice(&rag_prefix);
+            bytes::Bytes::from(v)
+        };
 
         let prefix_stream = if !rag_prefix.is_empty() {
             stream::once(async move { Ok::<bytes::Bytes, std::io::Error>(rag_prefix) })
@@ -1345,6 +1388,110 @@ struct McpListRequest {
     servers: Vec<String>,
 }
 
+// ── Serveurs MCP STDIO officiels (Légifrance, Judilibre) ──────────────────────
+//
+// Importés depuis les releases du pack (cf. mcp_pack.rs) puis lancés à la demande
+// comme sous-processus (cf. mcp_stdio.rs). Juridix ne gère que ces deux serveurs.
+
+fn mcp_error(status: StatusCode, msg: impl Into<String>) -> Response {
+    (status, Json(json!({ "error": msg.into() }))).into_response()
+}
+
+/// GET /api/mcp/stdio/servers — état des serveurs gérés (installés ? lancés ? identifiants ?).
+pub(crate) async fn mcp_stdio_servers() -> Response {
+    let hub = &crate::mcp_stdio::HUB;
+    let Some(dir) = hub.dir() else {
+        return mcp_error(StatusCode::SERVICE_UNAVAILABLE, "dossier des serveurs MCP non initialisé");
+    };
+    Json(json!({
+        "platform": crate::mcp_pack::platform_key(),
+        "pack_version": crate::mcp_pack::installed_version(&dir),
+        "servers": hub.status(),
+    }))
+    .into_response()
+}
+
+/// GET /api/mcp/stdio/pack-update — une version plus récente du pack existe-t-elle ?
+/// Ne renvoie jamais d'erreur HTTP : hors ligne, `latest` vaut `null` et `error` explique pourquoi.
+async fn mcp_pack_check() -> Response {
+    let installed = crate::mcp_stdio::HUB.dir().and_then(|d| crate::mcp_pack::installed_version(&d));
+    Json(crate::mcp_pack::check_update(&crate::mcp_pack::PackSource::default(), installed).await)
+        .into_response()
+}
+
+/// Une seule installation à la fois (deux clics rapides ne doivent pas se marcher dessus).
+static MCP_INSTALL_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
+/// POST /api/mcp/stdio/pack-update — importe (ou met à jour) Légifrance et Judilibre.
+/// Les autres serveurs du pack ne sont ni téléchargés ni installés.
+async fn mcp_pack_install() -> Response {
+    let hub = &crate::mcp_stdio::HUB;
+    let Some(dir) = hub.dir() else {
+        return mcp_error(StatusCode::SERVICE_UNAVAILABLE, "dossier des serveurs MCP non initialisé");
+    };
+    let Ok(_guard) = MCP_INSTALL_LOCK.try_lock() else {
+        return mcp_error(StatusCode::CONFLICT, "une installation est déjà en cours");
+    };
+    match crate::mcp_pack::install(
+        &crate::mcp_pack::PackSource::default(),
+        &dir,
+        &hub.ids(),
+        &crate::mcp_stdio::stop_before_replace,
+    )
+    .await
+    {
+        Ok(report) => Json(report).into_response(),
+        Err(e) => mcp_error(StatusCode::BAD_GATEWAY, e),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct McpStopRequest {
+    pub(crate) id: String,
+}
+
+/// POST /api/mcp/stdio/stop — arrête le processus d'un serveur (il redémarrera à la demande).
+pub(crate) async fn mcp_stdio_stop(Json(req): Json<McpStopRequest>) -> Response {
+    crate::mcp_stdio::HUB.stop(&req.id).await;
+    Json(json!({ "ok": true })).into_response()
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct McpToolsQuery {
+    pub(crate) id: String,
+}
+
+/// GET /api/mcp/stdio/tools?id=mcp-legifrance — catalogue complet du serveur (il est lancé si
+/// besoin) : chaque outil avec son coût en jetons et son état exposé / non exposé.
+pub(crate) async fn mcp_stdio_tools(axum::extract::Query(q): axum::extract::Query<McpToolsQuery>) -> Response {
+    match crate::mcp_stdio::HUB.catalog(&q.id).await {
+        Ok(c) => Json(c).into_response(),
+        Err(e) => mcp_error(StatusCode::BAD_GATEWAY, e),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct McpSelectionRequest {
+    pub(crate) id: String,
+    /// `{ "mode": "essential" | "all" | "custom", "tools": [...] }`
+    #[serde(flatten)]
+    pub(crate) selection: crate::mcp_stdio::ToolSelection,
+}
+
+/// POST /api/mcp/stdio/tools — choisit les outils exposés au LLM (Essentiels / Tous / Personnalisé).
+pub(crate) async fn mcp_stdio_set_tools(Json(req): Json<McpSelectionRequest>) -> Response {
+    let hub = &crate::mcp_stdio::HUB;
+    match hub.set_selection(&req.id, req.selection).await {
+        Ok(()) => match hub.catalog(&req.id).await {
+            Ok(c) => Json(c).into_response(),
+            // Sélection enregistrée mais serveur injoignable (identifiants ?) : on le dit sans échouer.
+            Err(_) => Json(json!({ "ok": true, "selection": hub.selection(&req.id) })).into_response(),
+        },
+        Err(e) => mcp_error(StatusCode::BAD_REQUEST, e),
+    }
+}
+
 async fn mcp_list_tools(Json(req): Json<McpListRequest>) -> Response {
     let client = Client::builder()
         .timeout(config::timeout_models())
@@ -1375,6 +1522,102 @@ async fn mcp_list_tools(Json(req): Json<McpListRequest>) -> Response {
 
     let result = futures::future::join_all(futures).await;
     Json(json!({ "servers": result })).into_response()
+}
+
+// ── Autorisation des serveurs MCP (R-02) ──────────────────────────────────────
+//
+// Une autorisation GLOBALE par serveur (tous ses outils), demandée une fois — à l'ajout du
+// serveur ou au premier usage — et renouvelée seulement si ses outils changent. Voir mcp_grants.rs.
+
+fn mcp_http_client() -> Client {
+    Client::builder()
+        .timeout(config::timeout_models())
+        .use_rustls_tls()
+        .user_agent("Mozilla/5.0 (compatible; Juridix/1.0)")
+        .build()
+        .unwrap_or_default()
+}
+
+#[derive(serde::Deserialize)]
+struct GrantServerRequest {
+    server: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GrantPutRequest {
+    server: String,
+    /// Empreinte des outils que l'utilisateur a examinés (renvoyée par `inspect`).
+    fingerprint: String,
+}
+
+/// GET /api/mcp/grants — autorisations enregistrées.
+async fn mcp_grants_list(State(state): State<Arc<AppState>>) -> Response {
+    match state.db.list_mcp_grants().await {
+        Ok(grants) => Json(json!({ "grants": grants })).into_response(),
+        Err(e) => mcp_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+    }
+}
+
+/// POST /api/mcp/grants/inspect — outils actuels d'un serveur et son statut d'autorisation.
+async fn mcp_grants_inspect(State(state): State<Arc<AppState>>, Json(req): Json<GrantServerRequest>) -> Response {
+    let (tools, reachable) = crate::mcp::list_tools(&mcp_http_client(), &req.server).await;
+    let grants = state.db.list_mcp_grants().await.unwrap_or_default();
+    let grant = grants.iter().find(|g| g.server == req.server);
+    let status = crate::mcp_grants::decide(&req.server, &tools, reachable, grant);
+    Json(json!({
+        "server": req.server,
+        "status": status,
+        "reachable": reachable,
+        "fingerprint": crate::mcp_grants::fingerprint(&tools),
+        "tools": crate::mcp_grants::tool_summaries(&tools),
+        "granted_at": grant.map(|g| g.granted_at.clone()),
+    }))
+    .into_response()
+}
+
+/// PUT /api/mcp/grants — autorise un serveur (tous ses outils). L'empreinte examinée est
+/// revérifiée : on n'autorise que ce que l'utilisateur a vu, pas ce que le serveur expose maintenant.
+async fn mcp_grants_put(State(state): State<Arc<AppState>>, Json(req): Json<GrantPutRequest>) -> Response {
+    if crate::mcp_grants::is_trusted_by_design(&req.server) {
+        return mcp_error(StatusCode::BAD_REQUEST, "serveur officiel : aucune autorisation requise");
+    }
+    let (tools, reachable) = crate::mcp::list_tools(&mcp_http_client(), &req.server).await;
+    if !reachable {
+        return mcp_error(StatusCode::BAD_GATEWAY, "serveur injoignable : impossible d'examiner ses outils");
+    }
+    if tools.is_empty() {
+        return mcp_error(StatusCode::BAD_REQUEST, "ce serveur n'expose aucun outil : rien à autoriser");
+    }
+    if crate::mcp_grants::fingerprint(&tools) != req.fingerprint {
+        return mcp_error(
+            StatusCode::CONFLICT,
+            "les outils du serveur ont changé depuis leur examen : examinez-les à nouveau avant d'autoriser",
+        );
+    }
+    let grant = crate::mcp_grants::Grant {
+        server: req.server,
+        fingerprint: req.fingerprint,
+        tools: tools.iter().filter_map(|t| t["name"].as_str().map(str::to_string)).collect(),
+        granted_at: chrono::Utc::now().to_rfc3339(),
+    };
+    match state.db.upsert_mcp_grant(grant.clone()).await {
+        Ok(()) => {
+            info!("MCP: serveur {} autorisé ({} outils)", grant.server, grant.tools.len());
+            Json(json!({ "grant": grant })).into_response()
+        }
+        Err(e) => mcp_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+    }
+}
+
+/// POST /api/mcp/grants/revoke — retire l'autorisation d'un serveur.
+async fn mcp_grants_revoke(State(state): State<Arc<AppState>>, Json(req): Json<GrantServerRequest>) -> Response {
+    match state.db.delete_mcp_grant(req.server.clone()).await {
+        Ok(()) => {
+            info!("MCP: autorisation du serveur {} retirée", req.server);
+            Json(json!({ "ok": true })).into_response()
+        }
+        Err(e) => mcp_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+    }
 }
 
 // ── Generate title ────────────────────────────────────────────────────────────
@@ -1484,6 +1727,18 @@ struct EndpointParams {
 /// Résout le bearer à utiliser : priorité au header `X-Albert-Token` envoyé
 /// directement par le frontend (disponible immédiatement, sans attendre l'IPC),
 /// fallback sur le token stocké dans AppState (initialisé via `init_credentials`).
+/// Endpoint Albert à utiliser. L'endpoint enregistré via `init_credentials`
+/// (IPC Tauri) fait foi ; le paramètre de requête n'est qu'un repli quand rien
+/// n'est encore enregistré. Ainsi, un appelant ne peut pas rediriger le jeton
+/// Albert vers un hôte de son choix.
+fn trusted_endpoint<'a>(creds: &'a Credentials, requested: &'a str) -> &'a str {
+    if creds.endpoint.trim().is_empty() {
+        requested
+    } else {
+        &creds.endpoint
+    }
+}
+
 fn resolve_bearer(headers: &HeaderMap, creds_bearer: &str) -> String {
     headers
         .get("x-albert-token")
@@ -1508,7 +1763,7 @@ async fn get_user_me(
         return Json(json!(null)).into_response();
     }
 
-    let base = albert_base(&params.endpoint);
+    let base = albert_base(trusted_endpoint(&creds, &params.endpoint));
     let client = Client::builder()
         .timeout(config::timeout_doc_resolve())
         .use_rustls_tls()
@@ -1554,7 +1809,7 @@ async fn list_models(
         return Json(json!({ "data": [] })).into_response();
     }
 
-    let base = albert_base(&params.endpoint);
+    let base = albert_base(trusted_endpoint(&creds, &params.endpoint));
     let client = Client::builder()
         .timeout(config::timeout_doc_resolve())
         .use_rustls_tls()

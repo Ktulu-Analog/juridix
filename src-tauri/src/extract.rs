@@ -79,10 +79,20 @@ fn extract_docx(content: &[u8]) -> Result<String> {
             Ok(f) => f,
             Err(_) => bail!("word/document.xml introuvable dans le DOCX"),
         };
-        let mut buf = String::new();
         use std::io::Read;
-        file.read_to_string(&mut buf)?;
-        buf
+        // Borne la taille décompressée (protection contre les « bombes ZIP »).
+        const MAX_DOCX_XML_BYTES: u64 = 64 * 1024 * 1024;
+        if file.size() > MAX_DOCX_XML_BYTES {
+            bail!("document.xml trop volumineux une fois décompressé");
+        }
+        let mut raw = Vec::new();
+        file.by_ref()
+            .take(MAX_DOCX_XML_BYTES + 1)
+            .read_to_end(&mut raw)?;
+        if raw.len() as u64 > MAX_DOCX_XML_BYTES {
+            bail!("document.xml trop volumineux une fois décompressé");
+        }
+        String::from_utf8(raw)?
     };
 
     Ok(docx_xml_to_text(&xml))

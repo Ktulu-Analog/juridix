@@ -1599,6 +1599,11 @@
   align-items: center;
   justify-content: space-between;
 }
+.jur-dossier-llm-title-right {
+  display: flex;
+  align-items: center;
+  font-weight: 400;
+}
 
 .jur-dossier-llm-count {
   font-size: 11px;
@@ -4106,3 +4111,103 @@ mark.jur-ann--flash {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ── Pré-filtre local Winnow ─────────────────────────────────────────────── */
+.jur-dossier-focus {
+  margin: 0 0 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.jur-winnow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  margin-left: 6px;
+  cursor: default;
+}
+.jur-winnow-pill:not(:disabled) { cursor: pointer; }
+.jur-winnow-pill:not(:disabled):hover { background: var(--bg-hover); }
+.jur-winnow-pill:disabled { opacity: 0.75; }
+.jur-winnow-pill--off { opacity: 0.6; }
+.jur-winnow-pill--checking { opacity: 0.7; }
+.jur-winnow-pill--ready {
+  background: color-mix(in srgb, #1a9e72 10%, transparent);
+  color: #1a9e72;
+  border-color: color-mix(in srgb, #1a9e72 22%, transparent);
+}
+.jur-winnow-pill--applied {
+  background: color-mix(in srgb, #1a9e72 14%, transparent);
+  color: #1a9e72;
+  border-color: color-mix(in srgb, #1a9e72 28%, transparent);
+}
+.jur-winnow-pill--unavailable,
+.jur-winnow-pill--fallback {
+  background: var(--amber-light);
+  color: var(--amber-dark);
+  border-color: color-mix(in srgb, var(--amber-dark) 20%, transparent);
+}
+
+.jur-winnow-modal { width: 560px; max-width: 92vw; }
+.jur-winnow-modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.jur-winnow-table { border-collapse: collapse; width: 100%; }
+.jur-winnow-table td { padding: 4px 0; vertical-align: top; }
+.jur-winnow-table td:first-child {
+  width: 40%;
+  color: var(--text-tertiary);
+  padding-right: 10px;
+  white-space: nowrap;
+}
+.jur-winnow-modal-empty { color: var(--text-tertiary); margin: 0; }
+.jur-winnow-modal-subtitle {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 4px;
+}
+.jur-winnow-modal-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.jur-winnow-modal-list li {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--bg-primary);
+}
+.jur-winnow-modal-list-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
+.jur-winnow-note { color: var(--text-tertiary); }
+.jur-winnow-note--warn {
+  background: var(--amber-light);
+  color: var(--amber-dark);
+  border: 1px solid color-mix(in srgb, var(--amber-dark) 20%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+.jur-winnow-preview { color: var(--text-tertiary); font-style: italic; }

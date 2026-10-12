@@ -1,5 +1,18 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Extraction décision JUDILIBRE
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Extraction décision JUDILIBRE
 // ============================================================================
 // Schéma officiel : decisionFull (GET /decision) — cf. swagger JUDILIBRE.
 // Extrait de JuridiquePanel.tsx (étape 2 du refactor).
@@ -8,26 +21,6 @@
 
 import { stripHtml, toHtmlString, sanitizeHtml, metaHtml, injectCitationLinks, resolveLegifranceInternalId } from './html-helpers';
 import type { ViewedContent } from './types';
-
-// ── Graphe de citations JUDILIBRE (contested/forward/rapprochements/timeline/
-// visa/files) ────────────────────────────────────────────────────────────────
-// Champs documentés par le swagger officiel (schémas `decisionLink`,
-// `textLink`, `fileLink`) mais jusqu'ici jamais restitués à l'écran — cf.
-// feuille de route « vers un niveau Dalloz/LexisNexis/Doctrine », piste A1.
-// Aucun de ces champs n'est en accès direct depuis les fonds Légifrance :
-// c'est une donnée déjà payée par l'abonnement API JUDILIBRE, pas une
-// nouvelle intégration.
-
-// ── Fallback recherche interne (rapprochements/visa SANS id/url) ───────────
-// Beaucoup de décisions (notamment celles issues de la source `jurinet`,
-// import historique de l'ancienne base Cour de cassation) ne renvoient
-// qu'un `title` texte pour leurs rapprochements/textes appliqués — aucun
-// `id`/`url` à résoudre en interne (confirmé sur pièce, cf. discussion du
-// 05/07/2026 : payload réel où `rapprochements`/`visa` n'ont QUE `title`).
-// Plutôt que de laisser ces items en texte inerte, on tente d'extraire une
-// référence exploitable du texte pour proposer une recherche interne
-// (judilibre pour un n° de pourvoi, légifrance pour un texte visé) — moins
-// précis qu'un lien direct, mais nettement mieux qu'un cul-de-sac.
 
 /** Repère un numéro de pourvoi français (ex. « 09-12.404 », « 17-11.442 »)
  *  dans le `title` d'un rapprochement sans id/url. */
@@ -56,11 +49,6 @@ function guessVisaFond(title: string): 'CODE_ETAT' | 'LODA_ETAT' {
  * résultat de recherche exploitable plutôt qu'une page vide ; à charge pour
  * l'utilisateur de retrouver l'article précis dans la table des matières du
  * texte une fois celui-ci ouvert.
- *
- * Non-gourmand (`.+?`) pour s'arrêter à la première occurrence de
- * du/de la/de l'/des — le numéro d'article lui-même (ex. « 80 duodecies »,
- * « L. 242-1 ») ne contient jamais l'un de ces mots entouré d'espaces, donc
- * pas de faux positif attendu à ce niveau.
  */
 function stripArticlePrefix(title: string): string {
   const m = title.match(/^Article\s+.+?\s+(?:du|de la|de l['’]|des)\s+(.+)$/i);

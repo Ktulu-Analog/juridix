@@ -1,5 +1,18 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Extraction LODA / CODE / article
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Extraction LODA / CODE / article
 // ============================================================================
 // Fonds concernés : LODA_ETAT, LODA_DATE, JORF, CODE_ETAT, CODE_DATE, et les
 // articles individuels (LEGIARTI, JORFARTI, KALIARTI...).

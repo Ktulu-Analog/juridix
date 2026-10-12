@@ -23,17 +23,19 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable   # requis : épinglé par SHA, la branche « stable » n'est plus lue
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
@@ -47,7 +49,7 @@ jobs:
             patchelf
 
       - name: Cache Cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -64,15 +66,23 @@ jobs:
         run: npm ci && npm run build
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Clé publique minisign des releases du pack MCP, compilée dans l'application
+          # (variable du dépôt : Settings → Secrets and variables → Actions → Variables).
+          # Vide = signature non exigée (mode de transition) — voir docs/MCP_PACK_SIGNATURE.md.
+          JURIDIX_MCP_PACK_PUBKEY: ${{ vars.JURIDIX_MCP_PACK_PUBKEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Juridix ${{ github.ref_name }}'
           releaseBody: |
             Voir [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) pour les détails.
-          releaseDraft: false
-          prerelease: false
+
+            ⚠️ **Brouillon** : téléchargez et testez les installeurs (docs/CHECKLIST_RELEASE.md) avant de publier.
+          # Toujours un BROUILLON : rien n'est public tant que vous ne cliquez pas sur « Publish release »,
+          # après avoir testé les installeurs. Un tag avec suffixe (v1.1.0-rc1) est en plus une pré-version.
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           projectPath: src-tauri
           tauriScript: npx tauri

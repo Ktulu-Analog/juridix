@@ -15,10 +15,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { installApiAuth } from './api-auth';
+import './fonts';
 import './index.css';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element not found');
 
 const root = ReactDOM.createRoot(rootEl);
-root.render(<React.StrictMode><App /></React.StrictMode>);
+
+// Le jeton de l'API locale doit être en place avant le premier appel réseau.
+installApiAuth().finally(() => {
+  root.render(<React.StrictMode><App /></React.StrictMode>);
+});

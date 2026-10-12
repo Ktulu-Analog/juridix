@@ -1,17 +1,14 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Helpers de mise en forme HTML/texte
+// Juridix — Assistant IA juridique desktop
 // ============================================================================
-// Fonctions PURES (aucune dépendance à React ni au state applicatif) : elles
-// prennent des données brutes (réponses API, chaînes) et renvoient du
-// HTML/texte prêt à afficher. Extraites de JuridiquePanel.tsx (étape 1 du
-// refactor — cf. discussion du 04/07/2026) car ce sont précisément les
-// fonctions les plus souvent réécrites au fil des corrections de bugs de
-// mapping de champs API : les isoler ici les rend plus faciles à relire, à
-// modifier sans risque de casser un JSDoc voisin, et à terme testables
-// unitairement avec des fixtures JSON sans dépendre de l'API Légifrance en
-// direct.
-//
+// Auteur  : Pierre COUGET
 // Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
 import TurndownService from 'turndown';
@@ -375,6 +372,30 @@ export function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<')
              .replace(/&gt;/g,'>').replace(/&nbsp;/g,' ').replace(/&quot;/g,'"')
              .replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
+}
+
+/**
+ * HTML → texte brut EN CONSERVANT la structure en blocs (un retour à la ligne
+ * par paragraphe / intitulé / élément de liste / ligne de tableau).
+ *
+ * Contrairement à `stripHtml` (qui écrase tous les espaces sur une seule
+ * ligne, ce qui convient aux extraits et aux comparaisons), celle-ci sert à
+ * dériver `contenuLlm` : le pré-filtre local Winnow (backend) découpe le texte
+ * en passages sur ces retours à la ligne. Sans eux, un code entier arrive en
+ * une seule ligne et ne peut plus être trié article par article.
+ */
+export function htmlToPlainBlocks(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|ul|ol|h[1-6]|tr|table|section|article|blockquote|pre)\s*>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // ── Conversion HTML → Markdown (uniquement pour le prompt LLM) ───────────────

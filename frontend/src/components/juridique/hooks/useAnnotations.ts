@@ -1,19 +1,24 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Hook useAnnotations
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Espace "Recherche juridique" — Hook useAnnotations
 // ============================================================================
 // État et logique des annotations/surlignages sur le document affiché :
 // persistance localStorage, sélection de texte → popover, CRUD annotation,
 // scroll-vers-annotation, et surlignage du HTML rendu (getAnnotatedHtml).
 //
-// Dépendances externes passées en paramètres :
-//   - viewedDoc          : document actuellement affiché (juste son id/contenu)
-//   - viewerContentRef    : ref DOM du conteneur de contenu, partagée avec le
-//                           mécanisme de TOC (scroll-spy) resté dans le composant
-//
-// Extrait de JuridiquePanel.tsx (étape 4 du refactor — cf. discussion du
-// 05/07/2026).
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
-// ============================================================================
+
 
 import { useState, useCallback, useRef, type RefObject } from 'react';
 import { safeSetJSON } from '../storage';
@@ -145,9 +150,6 @@ export function useAnnotations(
     ? annotations.filter((a) => a.docId === viewedDoc.id)
     : [];
 
-  // ── HTML annoté (surlignage annotation dans le HTML rendu) ───────────────────
-  // Stratégie : parse le HTML dans un DocumentFragment, puis marque les textes
-  // nœud par nœud avec un TreeWalker — robuste face aux sélections multi-balises.
   const getAnnotatedHtml = useCallback((html: string, anns: Annotation[]): string => {
     if (anns.length === 0) return html;
 

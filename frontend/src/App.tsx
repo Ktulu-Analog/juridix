@@ -21,6 +21,9 @@ import type { Conversation, Space } from './hooks/index';
 type LoadableConversation = { id: string; title: string; messages: ChatMessage[]; space_id?: string | null };
 import { genId } from './utils/text';
 import { hasArtifacts, extractArtifacts } from './utils/artifacts';
+import type { CitationGrounding } from './utils/citations';
+import { dossierToolsScope, mcpServersFor, officialMcpUrls, type ToolsScope } from './utils/officialMcp';
+import { useVeilleBadge } from './utils/veille';
 import { Message } from './components/Message';
 import type { ChatMessage, Attachment } from './components/Message';
 import { ArtifactsPanel } from './components/ArtifactsPanel';
@@ -30,8 +33,11 @@ import { PromptsEditorModal } from './components/PromptsEditorModal';
 import { IngestionModal } from './components/IngestionModal';
 import { JuridiquePanel } from './components/JuridiquePanel';
 import { API_BASE, IMAGE_MIME, IMAGE_EXTS, DOC_EXTS, MIME_TO_EXT, HISTORY_ITEMS } from './constants';
+import { getSecretStorageIssue, loadSecretsIntoSettings, onSecretStorageIssue, persistSecrets, stripSecrets } from './secureStorage';
+import { McpAuthDialog } from './components/McpAuthDialog';
+import { onMcpBlocked, serverHost, type McpBlocked } from './utils/mcpGrants';
 
-const DEFAULT_SETTINGS: Settings = { endpoint: '', bearer: '', model: '', web_search_mcp: '', web_search_mcp_alias: '', mcp_servers: [] };
+const DEFAULT_SETTINGS: Settings = { endpoint: '', bearer: '', model: '', web_search_mcp: '', web_search_mcp_alias: '', mcp_servers: [], winnow_enabled: false };
 
 // Applique immédiatement les préférences de police sur :root
 // Appelé au démarrage ET à chaque changement dans les settings
@@ -123,7 +129,14 @@ function AppInner() {
   const saveSettings = (s: Settings) => {
     applyFontPrefs(s.font_family, s.font_size);
     setSettings(s);
-    localStorage.setItem('juridix_settings', JSON.stringify(s));
+    // Les trois champs sensibles (bearer, qdrant_api_key, piste_client_secret)
+    // ne sont jamais écrits ici : `persistSecrets` les envoie au trousseau
+    // système (ou au repli localStorage dédié hors app desktop) — voir
+    // secureStorage.ts. `stripSecrets` garantit qu'aucun résidu en clair ne
+    // subsiste dans le blob `juridix_settings`, y compris si l'utilisateur
+    // vient de modifier un champ non sensible sans toucher aux secrets.
+    localStorage.setItem('juridix_settings', JSON.stringify(stripSecrets(s)));
+    persistSecrets(s).catch((e) => console.error('[secrets] persistSecrets a échoué', e));
     initCredentials(s);
   };
 
@@ -136,14 +149,50 @@ function AppInner() {
   // sur ces fetches, ce qui élimine toute dépendance au timing de l'IPC.
   const [credentialsReady, setCredentialsReady] = useState(false);
   useEffect(() => {
-    const p = initCredentials(settings);
-    if (p) p.then(() => setCredentialsReady(true)).catch(() => setCredentialsReady(true));
-    else setCredentialsReady(true);
+    (async () => {
+      // Les secrets (bearer, qdrant_api_key, piste_client_secret) vivent
+      // désormais dans le trousseau système, pas dans le `settings` chargé
+      // synchroniquement depuis localStorage au tout premier rendu : il faut
+      // les rapatrier ici — et migrer d'éventuelles valeurs héritées d'une
+      // installation antérieure à ce chantier — AVANT d'appeler
+      // `initCredentials`, sous peine d'envoyer des identifiants vides au
+      // tout premier démarrage. Voir secureStorage.ts.
+      const merged = await loadSecretsIntoSettings(settings);
+      setSettings(merged);
+      // Si une migration a eu lieu, purger immédiatement le blob localStorage
+      // des valeurs en clair qu'il contenait encore.
+      localStorage.setItem('juridix_settings', JSON.stringify(stripSecrets(merged)));
+
+      const p = initCredentials(merged);
+      if (p) p.then(() => setCredentialsReady(true)).catch(() => setCredentialsReady(true));
+      else setCredentialsReady(true);
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [showMcpStatus,     setShowMcpStatus]      = useState(false);
   const [showIngestion,     setShowIngestion]      = useState(false);
   const [showPromptsEditor, setShowPromptsEditor]  = useState(false);
   const [showAbout,         setShowAbout]          = useState(false);
+  // Trousseau système défaillant : les secrets ne sont pas enregistrés sur disque (voir secureStorage.ts).
+  const [secretIssue, setSecretIssue] = useState<string | null>(getSecretStorageIssue());
+  useEffect(() => onSecretStorageIssue(setSecretIssue), []);
+  // Serveurs MCP écartés par le backend faute d'autorisation valide (R-02) : avertissement non
+  // bloquant ; l'utilisateur examine puis autorise d'un seul geste (tous les outils du serveur).
+  const [mcpBlocked, setMcpBlocked] = useState<McpBlocked[]>([]);
+  const [mcpAuth, setMcpAuth] = useState<{ server: string; alias?: string } | null>(null);
+  const [mcpGrantMsg, setMcpGrantMsg] = useState<string | null>(null);
+  useEffect(() => onMcpBlocked(list => setMcpBlocked(prev => {
+    const m = new Map(prev.map(b => [b.server, b] as const));
+    for (const b of list) m.set(b.server, b);
+    return [...m.values()];
+  })), []);
+  useEffect(() => {
+    if (!mcpGrantMsg) return;
+    const t = setTimeout(() => setMcpGrantMsg(null), 9000);
+    return () => clearTimeout(t);
+  }, [mcpGrantMsg]);
+  const mcpAliasFor = (server: string): string | undefined =>
+    settings.mcp_servers?.find(x => x.url === server)?.alias
+    || (server === settings.web_search_mcp ? settings.web_search_mcp_alias || undefined : undefined);
   // viewMode pilote l'affichage du panneau juridique à gauche du chat.
   // 'juridique' est la vue par défaut de Juridix.
   const [viewMode, setViewMode] = useState<'juridique' | 'chat'>('juridique');
@@ -559,7 +608,7 @@ function AppInner() {
     finally { setExtracting(false); }
   };
 
-  const _dispatchChat = useCallback(async ({ historyForApi }: { historyForApi: { role: string; content: unknown }[] }) => {
+  const _dispatchChat = useCallback(async ({ historyForApi, toolsScope }: { historyForApi: { role: string; content: unknown }[]; toolsScope?: ToolsScope }) => {
     const assignments   = (() => { try { return JSON.parse(localStorage.getItem('juridix_space_assignments_v2') || '{}'); } catch { return {}; } })();
     const assignedColId: string | null = activeSpace?.id ? (assignments[activeSpace.id] ?? null) : null;
 
@@ -579,7 +628,9 @@ function AppInner() {
       historyForApi,
       model: modelForRequest,
       spaceId: activeSpace?.id || null,
-      mcpServers: [...(settings.mcp_servers || []).map(s => s.url), ...(webSearch && settings.web_search_mcp ? [settings.web_search_mcp] : [])],
+      // Analyse de dossier : aucun outil par défaut (restitution factuelle), ou
+      // Légifrance/Judilibre seulement si l'utilisateur a coché « Compléter… ».
+      mcpServers: mcpServersFor(toolsScope, settings.mcp_servers || [], settings.web_search_mcp, webSearch),
       collectionId: assignedColId,
     });
   }, [settings, activeModel, availableModels, activeSpace, webSearch, streamChat, toastFn]);
@@ -610,7 +661,7 @@ function AppInner() {
     if (inputRef.current) inputRef.current.style.height = 'auto';
   };
 
-  const sendMessage = useCallback(async (text?: string, opts?: { resetConversation?: boolean }): Promise<string | null> => {
+  const sendMessage = useCallback(async (text?: string, opts?: { resetConversation?: boolean; completeWithMcp?: boolean }): Promise<string | null> => {
     const userText = (text || inputRef.current?.value || '').trim();
     if ((!userText && !attachments.length) || loading) return null;
     if (!configured) { setShowSettings(true); return null; }
@@ -643,30 +694,39 @@ function AppInner() {
     // flag, qui court-circuite `messages` au lieu d'en dépendre.
     const baseHistory = opts?.resetConversation ? [] : messages;
     const historyForApi = [...baseHistory, { role: 'user', content: fullContent }];
+    // Réponse produite à partir de documents fournis au modèle (analyse de dossier
+    // ou pièces jointes) : ses citations seront confrontées à ces sources (« hors
+    // sources » = vient de la mémoire du modèle). Un simple échange de chat n'a pas
+    // de sources, donc pas d'ancrage.
+    const grounded = !!opts?.resetConversation || attachments.some(a => a.type !== 'image');
+    // `resetConversation` n'est utilisé que par les analyses de dossier : sans outils, sauf
+    // si l'utilisateur a coché « Compléter via Légifrance / Judilibre ».
+    const toolsScope: ToolsScope | undefined = opts?.resetConversation ? dossierToolsScope(!!opts.completeWithMcp) : undefined;
     if (opts?.resetConversation) {
-      setMessages([userMsg, { role: 'assistant', content: '', streaming: true }]);
+      setMessages([userMsg, { role: 'assistant', content: '', streaming: true, grounded, toolsScope }]);
       setCurrentConvId(genId()); setCurrentConvTitle(null); titleGeneratedRef.current = false;
       setArtifactsMsgIndex(null);
     } else {
-      setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', streaming: true }]);
+      setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', streaming: true, grounded, toolsScope }]);
     }
     if (inputRef.current) { inputRef.current.value = ''; autoResize(); } setAttachments([]);
     if (inputRef.current) inputRef.current.style.height = 'auto';
-    return await _dispatchChat({ historyForApi });
+    return await _dispatchChat({ historyForApi, toolsScope });
   }, [messages, loading, attachments, configured, _dispatchChat, viewMode, openChatOverlay]);
 
   const regenerateMessage = useCallback(async (assistantMsgIndex: number) => {
     if (loading) return;
     const truncated = messages.slice(0, assistantMsgIndex);
-    setMessages([...truncated, { role: 'assistant', content: '', streaming: true }]);
-    await _dispatchChat({ historyForApi: truncated.map(m => ({ role: m.role, content: m.content })) });
+    const toolsScope = messages[assistantMsgIndex]?.toolsScope;
+    setMessages([...truncated, { role: 'assistant', content: '', streaming: true, grounded: messages[assistantMsgIndex]?.grounded, toolsScope }]);
+    await _dispatchChat({ historyForApi: truncated.map(m => ({ role: m.role, content: m.content })), toolsScope });
   }, [messages, loading, _dispatchChat]);
 
   const editAndResend = useCallback(async (userMsgIndex: number, newText: string) => {
     if (loading || !newText.trim()) return;
     const before = messages.slice(0, userMsgIndex);
-    setMessages([...before, { ...messages[userMsgIndex], content: newText, displayContent: newText }, { role: 'assistant', content: '', streaming: true }]);
-    await _dispatchChat({ historyForApi: [...before.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: newText }] });
+    setMessages([...before, { ...messages[userMsgIndex], content: newText, displayContent: newText }, { role: 'assistant', content: '', streaming: true, grounded: messages[userMsgIndex + 1]?.grounded, toolsScope: messages[userMsgIndex + 1]?.toolsScope }]);
+    await _dispatchChat({ historyForApi: [...before.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: newText }], toolsScope: messages[userMsgIndex + 1]?.toolsScope });
   }, [messages, loading, _dispatchChat]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -682,6 +742,31 @@ function AppInner() {
   );
   const closeArtifacts = useCallback(() => setArtifactsMsgIndex(null), []);
 
+  // Veille juridique : nombre de résultats non lus (relevé toutes les minutes) et signal
+  // d'ouverture du panneau depuis le badge de la barre du haut.
+  const { total: veilleUnread, refresh: refreshVeilleBadge } = useVeilleBadge();
+  const [veilleSignal, setVeilleSignal] = useState(0);
+
+  // Ancrage des citations : ce que le modèle a reçu pour répondre au message `msgIndex`
+  // (textes des messages utilisateur précédents + clés des résultats d'outils/RAG de
+  // ce tour). Lu via une ref : l'identité de la fonction reste stable, donc les
+  // messages mémoïsés ne se re-rendent pas à chaque token.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const getGroundingFor = useCallback((msgIndex: number): CitationGrounding | null => {
+    const all = messagesRef.current;
+    const target = all[msgIndex];
+    if (!target?.grounded) return null;
+    const textOf = (c: ChatMessage['content']): string =>
+      typeof c === 'string' ? c : c.map(p => p.text ?? '').filter(Boolean).join('\n');
+    const sources = all.slice(0, msgIndex).filter(m => m.role === 'user').map(m => textOf(m.content)).filter(Boolean);
+    return { sources, keys: target.groundingKeys ?? [] };
+  }, []);
+  const getArtifactsGrounding = useCallback(
+    () => (artifactsMsgIndex === null ? null : getGroundingFor(artifactsMsgIndex)),
+    [artifactsMsgIndex, getGroundingFor],
+  );
+
   const lastArtifactsMsgIndex = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -692,6 +777,15 @@ function AppInner() {
 
   const globalBadges = (
     <>
+      {veilleUnread > 0 && (
+        <button
+          className="topbar-veille-btn"
+          title={`${veilleUnread} nouveau(x) résultat(s) de veille juridique`}
+          onClick={() => { setViewMode('juridique'); setVeilleSignal(n => n + 1); }}
+        >
+          🔔<span className="topbar-veille-btn__count">{veilleUnread}</span>
+        </button>
+      )}
       {lastUsage && (
         <div className="topbar-usage" title={`Tokens : ${lastUsage.promptTokens} in / ${lastUsage.completionTokens} out`}>
           <span className="usage-icon">🔢</span>
@@ -755,6 +849,51 @@ function AppInner() {
 
   return (
     <div className="layout">
+      {(secretIssue || mcpBlocked.length > 0 || mcpGrantMsg) && (
+        <div className="top-banners">
+          {secretIssue && (
+            <div className="secrets-banner" role="alert">
+              <span>🔐 {secretIssue}</span>
+              <button onClick={() => setSecretIssue(null)} aria-label="Fermer l'avertissement">✕</button>
+            </div>
+          )}
+          {mcpBlocked.map(b => (
+            <div key={b.server} className="secrets-banner" role="alert">
+              <span>
+                {b.status === 'changed'
+                  ? `⚠️ Le serveur MCP « ${mcpAliasFor(b.server) || serverHost(b.server)} » a modifié ses outils depuis votre autorisation : ils n'ont pas été utilisés pour cette réponse.`
+                  : `🔒 Le serveur MCP « ${mcpAliasFor(b.server) || serverHost(b.server)} » n'est pas autorisé : ses outils n'ont pas été utilisés pour cette réponse.`}
+              </span>
+              <span className="top-banners__actions">
+                <button className="top-banners__btn" onClick={() => setMcpAuth({ server: b.server, alias: mcpAliasFor(b.server) })}>
+                  Examiner et autoriser
+                </button>
+                <button onClick={() => setMcpBlocked(prev => prev.filter(x => x.server !== b.server))} aria-label="Ignorer">✕</button>
+              </span>
+            </div>
+          ))}
+          {mcpGrantMsg && (
+            <div className="secrets-banner top-banners__ok" role="status">
+              <span>✔ {mcpGrantMsg}</span>
+              <button onClick={() => setMcpGrantMsg(null)} aria-label="Fermer">✕</button>
+            </div>
+          )}
+        </div>
+      )}
+      {mcpAuth && (
+        <McpAuthDialog
+          server={mcpAuth.server}
+          alias={mcpAuth.alias}
+          onClose={(changed) => {
+            const srv = mcpAuth.server;
+            setMcpAuth(null);
+            if (changed) {
+              setMcpBlocked(prev => prev.filter(x => x.server !== srv));
+              setMcpGrantMsg('Autorisation enregistrée. Posez de nouveau votre question pour que le modèle utilise ce serveur.');
+            }
+          }}
+        />
+      )}
       {showSettings      && <SettingsModal settings={settings} onSave={saveSettings} onClose={() => setShowSettings(false)} />}
       {showMcpStatus     && <McpStatusPanel servers={settings.mcp_servers || []} webSearchMcp={settings.web_search_mcp ? { url: settings.web_search_mcp, alias: settings.web_search_mcp_alias } : undefined} webSearchActive={webSearch} onClose={() => setShowMcpStatus(false)} />}
       {showIngestion     && <IngestionModal settings={settings} spaces={spaces} onClose={() => { setShowIngestion(false); refreshCollectionsAndAssignments(); }} onSave={(assignments) => { setSpaceAssignments(assignments); refreshCollectionsAndAssignments(); }} />}
@@ -850,7 +989,12 @@ function AppInner() {
             <div className="juridique-column juridique-column--full">
               <JuridiquePanel
                 globalControls={globalBadges}
-                onSendToChat={async (message) => {
+                winnowEnabled={!!settings.winnow_enabled}
+                officialMcpAvailable={officialMcpUrls(settings.mcp_servers || []).length > 0}
+                veilleSignal={veilleSignal}
+                veilleUnread={veilleUnread}
+                onVeilleChanged={refreshVeilleBadge}
+                onSendToChat={async (message, opts) => {
                   // Une analyse de dossier (synthèse/points clés/contradictoire)
                   // porte sur un ensemble de documents précis, sans rapport
                   // avec une éventuelle conversation déjà en cours dans ce même
@@ -871,7 +1015,7 @@ function AppInner() {
                     inputRef.current.value = message;
                     inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
                   }
-                  return await sendMessage(message, { resetConversation: true });
+                  return await sendMessage(message, { resetConversation: true, completeWithMcp: !!opts?.completeWithMcp });
                 }}
                 onShowInChat={showStoredAnalysis}
                 onClose={() => setViewMode('chat')}
@@ -913,6 +1057,7 @@ function AppInner() {
                     onEditResend={editAndResend}
                     onStop={stopStreaming}
                     isLast={i === messages.length - 1}
+                    getGrounding={getGroundingFor}
                     loading={loading}
                   />
                 ))}
@@ -1039,7 +1184,7 @@ function AppInner() {
                   {/* Les Artéfacts remplacent le contenu de l'overlay (pas de
                      5ᵉ zone séparée) quand une réponse en contient. ────────── */}
                   {artifactsOpen && activeArtifacts.length > 0 ? (
-                    <ArtifactsPanel artifacts={activeArtifacts} onClose={closeArtifacts} fillParent />
+                    <ArtifactsPanel artifacts={activeArtifacts} onClose={closeArtifacts} getGrounding={getArtifactsGrounding} fillParent />
                   ) : (
                     <>
                       <div className="chat-area chat-area--overlay" ref={chatAreaRef}>
@@ -1058,6 +1203,7 @@ function AppInner() {
                             onEditResend={editAndResend}
                             onStop={stopStreaming}
                             isLast={i === messages.length - 1}
+                            getGrounding={getGroundingFor}
                             loading={loading}
                           />
                         ))}

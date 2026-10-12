@@ -1,51 +1,30 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Extraction Dossier législatif
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Extraction Dossier législatif
 // ============================================================================
 // Fonds concerné : dossiers législatifs (id `JORFDOLE…`), travaux
 // préparatoires d'une loi — exposé des motifs, arborescence des débats
 // parlementaires par chambre (Sénat / Assemblée nationale), sous-dossiers
 // avec leur propre contenu HTML.
 //
-// Point d'entrée : `SearchResult.dossiersLegislatifs` / `ViewedDoc.dossiersLegislatifs`
-// (cf. roadmap A4), affiché via un bouton dédié dans l'en-tête de la
-// visionneuse (JuridiquePanel.tsx) et sur les cartes de résultat LODA/JORF.
-// Ouverture par id via GET /api/juridique/dossier/:id → POST
-// /consult/dossierLegislatif côté PISTE (cf.
-// legifrance.rs::get_dossier_legislatif, déjà câblé côté backend en
-// routes.rs::get_dossier).
-//
 // Schéma vérifié le 08/07/2026 contre le swagger officiel Légifrance
 // v2.4.2 (définitions `ConsultDossierLegislatifResponse`, `DossierLegislatif`,
 // `Dossier`, `Arborescence`, `Niveau`, `Lien`, `Legislature`) — cf.
 // useDocumentViewer.ts pour le repli entre `raw.dossiersLegislatifs` (présent
 // directement sur ConsultTextResponse/ConsultJorfResponse) et
-// `SearchResult.dossiersLegislatifs`. Les deux exposent des objets
-// `DossierLegislatif` COMPLETS (pas de simples références id/titre) : la
-// réponse de POST /consult/dossierLegislatif elle-même n'ajoute donc en
-// pratique rien de plus que ce qui est déjà disponible depuis la recherche
-// ou le texte consulté — l'appel réseau reste utile pour une navigation
-// dédiée cohérente avec le reste de l'application (pile de documents,
-// bouton retour) et pour couvrir les cas où le champ serait absent.
-//
-// Points à noter sur le schéma réel (par opposition à la première version de
-// ce module, écrite avant d'avoir accès à cette doc officielle — cf. le
-// commit associé si besoin de comparer) :
-//  - La réponse de /consult/dossierLegislatif est enveloppée sous la clé
-//    `dossierLegislatif` (`ConsultDossierLegislatifResponse.dossierLegislatif`),
-//    pas directement à la racine.
-//  - Pas de liste "actes législatifs" à plat : le parcours parlementaire est
-//    une arborescence récursive (`arborescence.niveaux[].liens[]`,
-//    `niveaux[].niveaux[]…`), typiquement un niveau par chambre (« Sénat »,
-//    « Assemblée nationale ») contenant des liens externes (Sénat/AN/JO —
-//    jamais des ids Légifrance résolubles en interne).
-//  - `exposeMotif` (pas `exposeDesMotifs`) : HTML.
-//  - `dossiers[]` : sous-dossiers avec leur propre contenu HTML
-//    (`contenuDossier`), pas des documents PDF ; le champ `libelleTexte`
-//    donne l'intitulé (ex. « Projet de loi »).
-//  - Dates (`dateCreation`, `dateDerniereModification`, `dateMajEcheancier`)
-//    en timestamp ms — déjà géré tel quel par `formatLegiDate`.
-//
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+// `SearchResult.dossiersLegislatifs`.//
 // ============================================================================
 
 import {

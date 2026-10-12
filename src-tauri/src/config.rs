@@ -171,12 +171,101 @@ pub fn timeout_doc_resolve() -> Duration {
     Duration::from_secs(env_u64("TIMEOUT_DOC_RESOLVE_SECS", 10))
 }
 
-/// Timeout pour le proxy image (défaut : 15s).
-pub fn timeout_image_proxy() -> Duration {
-    Duration::from_secs(env_u64("TIMEOUT_IMAGE_PROXY_SECS", 15))
-}
-
 /// Timeout pour les appels de liste de modèles et autres appels courts (défaut : 8s).
 pub fn timeout_models() -> Duration {
     Duration::from_secs(env_u64("TIMEOUT_MODELS_SECS", 8))
+}
+
+// ── Pré-filtre local « Winnow » (serveur Ollaya) ──────────────────────────────
+//
+// Couche optionnelle entre l'extraction des textes (Légifrance / JUDILIBRE) et
+// le LLM distant : un modèle de décision (Winnow, servi par Ollaya sur la
+// machine de l'utilisateur) écarte les passages hors-sujet ou sans contenu
+// juridique avant construction du prompt. Voir docs/WINNOW.md.
+//
+// Principe directeur : ÉCHEC OUVERT. Serveur absent, modèle non téléchargé,
+// délai dépassé → le texte part intégralement, comme avant.
+
+// Note : l'activation du pré-filtre (WINNOW_ENABLED) est une préférence
+// utilisateur — case à cocher dans Réglages ⚙, envoyée par requête (champ
+// `winnow_enabled` de `EnvoyerChatRequest`), et non une variable d'environnement :
+// deux instances de Juridix sur le même poste peuvent ainsi avoir des choix
+// différents, et le changement est pris en compte sans redémarrage.
+// Les réglages ci-dessous restent en .env : ce sont des détails d'installation
+// locale (où tourne Ollaya, quel modèle) plutôt que des préférences d'usage.
+
+/// URL du serveur Ollaya local (défaut : http://127.0.0.1:11435).
+pub fn ollaya_url() -> String {
+    env_str("OLLAYA_URL", "http://127.0.0.1:11435")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Clé d'API Ollaya (si le serveur est lancé avec OLLAYA_API_KEY).
+pub fn ollaya_api_key() -> Option<String> {
+    match std::env::var("OLLAYA_API_KEY") {
+        Ok(v) if !v.trim().is_empty() => Some(v),
+        _ => None,
+    }
+}
+
+/// Modèle de décision (défaut : winnow:e4b — voir https://ollaya.dev/library/winnow).
+pub fn winnow_model() -> String {
+    env_str("WINNOW_MODEL", "winnow:e4b")
+}
+
+/// Durée de maintien du modèle en mémoire après usage (défaut : 30m).
+pub fn winnow_keep_alive() -> String {
+    env_str("WINNOW_KEEP_ALIVE", "30m")
+}
+
+/// Un passage n'est écarté comme « hors sujet » que si P(niveau 0) ≥ seuil (défaut : 0.85).
+/// Seuil volontairement haut : en droit, écarter à tort coûte plus cher que garder à tort.
+pub fn winnow_drop_threshold() -> f64 {
+    env_f64("WINNOW_DROP_THRESHOLD", 0.85)
+}
+
+/// Idem pour le rôle « mentions sans contenu juridique » (défaut : 0.85).
+pub fn winnow_role_threshold() -> f64 {
+    env_f64("WINNOW_ROLE_THRESHOLD", 0.85)
+}
+
+/// Nombre maximum de passages soumis à Winnow par requête ; le reste est conservé tel quel.
+pub fn winnow_max_passages() -> usize {
+    env_usize("WINNOW_MAX_PASSAGES", 400)
+}
+
+/// Budget de temps global du filtrage ; au-delà, les passages restants sont conservés.
+pub fn winnow_time_budget() -> Duration {
+    Duration::from_secs(env_u64("WINNOW_TIME_BUDGET_SECS", 30))
+}
+
+/// Timeout d'une décision unitaire (défaut : 20s).
+pub fn winnow_request_timeout() -> Duration {
+    Duration::from_secs(env_u64("WINNOW_REQUEST_TIMEOUT_SECS", 20))
+}
+
+/// Timeout du chargement initial du modèle en mémoire (défaut : 90s).
+pub fn winnow_load_timeout() -> Duration {
+    Duration::from_secs(env_u64("WINNOW_LOAD_TIMEOUT_SECS", 90))
+}
+
+/// En dessous de ce volume total (caractères), on n'appelle pas Winnow (défaut : 8000).
+pub fn winnow_min_chars() -> usize {
+    env_usize("WINNOW_MIN_CHARS", 8_000)
+}
+
+/// Taille maximale d'un passage (défaut : 5000 car. ≈ 1400 tokens ; contexte Winnow = 8192).
+pub fn winnow_max_passage_chars() -> usize {
+    env_usize("WINNOW_MAX_PASSAGE_CHARS", 5_000)
+}
+
+/// Les blocs plus courts que ce seuil sont fusionnés avec le suivant (défaut : 300).
+pub fn winnow_min_passage_chars() -> usize {
+    env_usize("WINNOW_MIN_PASSAGE_CHARS", 300)
+}
+
+/// Part minimale des passages d'un document qui doit survivre au filtre (défaut : 0.2).
+pub fn winnow_min_keep_ratio() -> f64 {
+    env_f64("WINNOW_MIN_KEEP_RATIO", 0.2)
 }

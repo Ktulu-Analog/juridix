@@ -1,0 +1,48 @@
+{
+  "_lisez_moi": [
+    "Copier ce fichier en mcp_servers.json dans le dossier de données de Juridix (ou pointer JURIDIX_MCP_CONFIG dessus).",
+    "Serveurs : https://github.com/Ktulu-Analog/demeter-mcp-pack — le pack ne contient que les SOURCES : compiler avec scripts/build-all.sh (binaires dans mcp-servers/<serveur>/bin/), puis remplacer les chemins 'command' ci-dessous par les vôtres.",
+    "Windows : utiliser le .exe (ex. C:\\\\mcp\\\\mcp-legifrance-windows-x64.exe), chemins avec \\\\\\\\ dans le JSON.",
+    "Identifiants : NE PAS écrire de secret ici. ${JURIDIX_PISTE_CLIENT_ID} et ${JURIDIX_PISTE_CLIENT_SECRET} sont ceux déjà saisis dans Juridix (une même application PISTE doit avoir accès à Légifrance ET à JUDILIBRE).",
+    "'tools' : liste d'outils exposés au LLM (noms exacts ou préfixe*). Sans elle, les 62 outils Légifrance + 8 Judilibre partent avec CHAQUE requête de chat (≈ 7 600 jetons) et le modèle choisit moins bien. Un outil absent de la liste est aussi refusé à l'appel.",
+    "Légifrance sandbox : ajouter \"LEGIFRANCE_ENV\": \"sandbox\" dans env.",
+    "Puis ajouter stdio://legifrance et stdio://judilibre dans Réglages > Serveurs MCP."
+  ],
+  "mcpServers": {
+    "legifrance": {
+      "command": "/chemin/vers/mcp-servers/mcp-legifrance/bin/mcp-legifrance-linux-x64",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "LEGIFRANCE_CLIENT_ID": "${JURIDIX_PISTE_CLIENT_ID}",
+        "LEGIFRANCE_CLIENT_SECRET": "${JURIDIX_PISTE_CLIENT_SECRET}"
+      },
+      "tools": [
+        "legifrance_rechercher",
+        "legifrance_article_par_numero",
+        "legifrance_obtenir_article",
+        "legifrance_loi_decret",
+        "legifrance_jorf",
+        "legifrance_versions_article"
+      ]
+    },
+    "judilibre": {
+      "command": "/chemin/vers/mcp-servers/mcp-judilibre/bin/mcp-judilibre-linux-x64",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "JUDILIBRE_CLIENT_ID": "${JURIDIX_PISTE_CLIENT_ID}",
+        "JUDILIBRE_CLIENT_SECRET": "${JURIDIX_PISTE_CLIENT_SECRET}"
+      },
+      "tools": [
+        "judilibre_rechercher",
+        "judilibre_decision",
+        "judilibre_taxonomie"
+      ]
+    }
+  }
+}

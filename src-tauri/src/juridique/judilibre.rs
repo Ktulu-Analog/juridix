@@ -27,7 +27,7 @@ use super::client::PisteClient;
 
 // ── Base URL ──────────────────────────────────────────────────────────────────
 
-const JUDILIBRE_BASE: &str = "https://api.piste.gouv.fr/cassation/judilibre/v1.0";
+// Base de l'API portée par `PisteClient::judilibre_base()` (surchargeable en test).
 
 // ── Types publics ─────────────────────────────────────────────────────────────
 
@@ -278,7 +278,7 @@ pub async fn search(
     }
 
     let qs = params.to_query_string();
-    let url = format!("{}/search?{}", JUDILIBRE_BASE, qs);
+    let url = format!("{}/search?{}", client.judilibre_base(), qs);
     debug!("[JUDILIBRE] search url={}", url);
 
     client.get_json::<JudilibreSearchResponse>(&url).await
@@ -312,7 +312,7 @@ pub async fn get_decision(
             }
         }
     }
-    let url = format!("{}/decision?{}", JUDILIBRE_BASE, parts.join("&"));
+    let url = format!("{}/decision?{}", client.judilibre_base(), parts.join("&"));
     debug!("[JUDILIBRE] decision id={}", id);
     client.get_json::<Value>(&url).await
 }
@@ -391,7 +391,7 @@ pub async fn export(client: &PisteClient, params: JudilibreExportParams) -> Resu
         parts.push("resolve_references=true".to_string());
     }
 
-    let url = format!("{}/export?{}", JUDILIBRE_BASE, parts.join("&"));
+    let url = format!("{}/export?{}", client.judilibre_base(), parts.join("&"));
     debug!("[JUDILIBRE] export url={}", url);
     client.get_json::<Value>(&url).await
 }
@@ -430,7 +430,11 @@ pub async fn get_taxonomy(
     id: &str,
     context_value: Option<&str>,
 ) -> Result<Value> {
-    let mut url = format!("{}/taxonomy?id={}", JUDILIBRE_BASE, urlencoding::encode(id));
+    let mut url = format!(
+        "{}/taxonomy?id={}",
+        client.judilibre_base(),
+        urlencoding::encode(id)
+    );
     if let Some(ctx) = context_value {
         url.push_str(&format!("&context_value={}", urlencoding::encode(ctx)));
     }
@@ -440,13 +444,13 @@ pub async fn get_taxonomy(
 
 /// Vérifie la disponibilité du service JUDILIBRE.
 pub async fn healthcheck(client: &PisteClient) -> Result<Value> {
-    let url = format!("{}/healthcheck", JUDILIBRE_BASE);
+    let url = format!("{}/healthcheck", client.judilibre_base());
     client.get_json::<Value>(&url).await
 }
 
 /// Stats globales de la base JUDILIBRE.
 pub async fn stats(client: &PisteClient) -> Result<Value> {
-    let url = format!("{}/stats", JUDILIBRE_BASE);
+    let url = format!("{}/stats", client.judilibre_base());
     client.get_json::<Value>(&url).await
 }
 
@@ -471,7 +475,7 @@ pub async fn transactional_history(
     }
     let url = format!(
         "{}/transactionalhistory?{}",
-        JUDILIBRE_BASE,
+        client.judilibre_base(),
         parts.join("&")
     );
     client.get_json::<Value>(&url).await

@@ -1,18 +1,22 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Persistance localStorage
+// Juridix — Assistant IA juridique desktop
 // ============================================================================
-// Fonctions PURES extraites de JuridiquePanel.tsx (étape 1 du refactor).
+// Auteur  : Pierre COUGET
 // Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-/**
- * `localStorage.setItem` sûr : une `QuotaExceededError` (ou toute autre
- * erreur de sérialisation) est journalisée plutôt que de remonter et
- * planter tout le rendu React (écran blanc). Utilisé pour toutes les
- * persistances de state applicatif (dossiers, favoris, historique,
- * annotations) — voir `pruneHeavyFieldsForStorage` ci-dessous pour le
- * traitement du cas le plus fréquent (pièces jointes base64 volumineuses).
- */
+// ============================================================================
+// Espace "Recherche juridique" — Persistance localStorage
+// ============================================================================
+
+
+
 export function safeSetJSON(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -21,22 +25,7 @@ export function safeSetJSON(key: string, value: unknown): void {
   }
 }
 
-/**
- * Retire les champs base64 volumineux (`Circulaire.data`, `Debat.data`,
- * `Accord.data` — confirmés par le swagger officiel, "contenu du fichier en
- * base64") d'un objet `raw` avant de le persister en localStorage.
- *
- * Ces champs ne sont JAMAIS utilisés pour le rendu (le PDF se télécharge via
- * une URL dédiée — cf. resolveCircPdfUrl/resolveDebatPdfUrl dans
- * content/html-helpers.ts — pas décodé depuis ce base64), mais ils peuvent
- * peser plusieurs Mo. Comme `saveDossiers`/`toggleFavorite` stockent le
- * `raw` complet de CHAQUE document du dossier/des favoris dans une seule clé
- * localStorage, quelques circulaires/débats avec pièce jointe suffisent à
- * dépasser le quota (5-10 Mo/origine) : `localStorage.setItem` lève alors
- * une `QuotaExceededError` non interceptée qui fait planter tout le rendu
- * React (écran blanc) — précisément le symptôme observé en ajoutant une
- * circulaire à un dossier.
- */
+/** Retire les champs base64 volumineux */
 export function pruneHeavyFieldsForStorage<T>(raw: T): T {
   if (!raw || typeof raw !== 'object') return raw;
   const strip = (obj: Record<string, unknown>): Record<string, unknown> => {

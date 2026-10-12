@@ -1,14 +1,23 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Hook useFavorites
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Espace "Recherche juridique" — Hook useFavorites
 // ============================================================================
 // État et logique des documents favoris : persistance localStorage,
 // ajout/retrait, panneau d'affichage. Isolé car peu couplé au reste de
 // l'état du panneau — seule dépendance externe : le document actuellement
 // affiché (`viewedDoc`), passé en paramètre pour calculer `isFavorite`.
-//
-// Extrait de JuridiquePanel.tsx (étape 4 du refactor — cf. discussion du
-// 05/07/2026).
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 import { useState, useCallback } from 'react';

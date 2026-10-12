@@ -1,35 +1,44 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Hook useDossiers
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Espace "Recherche juridique" — Hook useDossiers
 // ============================================================================
 // État et logique des dossiers / cartable : multi-dossiers (créer, renommer,
 // supprimer, changer d'actif), ajout/retrait de documents, ouverture d'un
 // document stocké sans appel réseau, synthèse LLM du dossier, export
 // Markdown.
-//
-// Dépendances externes passées en paramètres — c'est le point de couplage
-// avec le viewer documenté dans le plan de refactor initial :
-// `openDossierItem` ouvre un document du dossier exactement comme le ferait
-// une recherche (empile `viewedDoc` courant dans `docStack`, vide l'erreur).
-//
-// Extrait de JuridiquePanel.tsx (étape 4 du refactor — cf. discussion du
-// 05/07/2026).
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 import { useState, useCallback } from 'react';
 import { API_BASE } from '../../../constants';
 import { extractTextContent } from '../content';
-import { stripHtml } from '../content/html-helpers';
+import { htmlToPlainBlocks } from '../content/html-helpers';
 import { safeSetJSON, pruneHeavyFieldsForStorage } from '../storage';
-import type { Dossier, DossierItem, DossierAnalysis, ViewedDoc } from '../types';
+import type { Dossier, DossierItem, DossierAnalysis, ViewedDoc, WinnowReport } from '../types';
 
 export function useDossiers(
   viewedDoc: ViewedDoc | null,
   setViewedDoc: (doc: ViewedDoc | null) => void,
   setDocStack: React.Dispatch<React.SetStateAction<ViewedDoc[]>>,
   setDocError: (err: string | null) => void,
-  onSendToChat: (message: string) => Promise<string | null>,
+  onSendToChat: (message: string, opts?: { completeWithMcp?: boolean }) => Promise<string | null>,
   onShowInChat: (message: string) => void,
+  /** Case à cocher des préférences (Réglages ⚙ → Juridique) — voir docs/WINNOW.md.
+   *  Transmise à chaque analyse ; ni lue ni écrite depuis une variable d'environnement. */
+  winnowEnabled: boolean,
+  /** Au moins un serveur officiel (Légifrance/Judilibre) est activé dans les réglages. */
+  officialMcpAvailable: boolean = false,
 ) {
   const [dossiers, setDossiers] = useState<Dossier[]>(() => {
     try {
@@ -73,6 +82,12 @@ export function useDossiers(
 
   const [dossierLlmLoading, setDossierLlmLoading] = useState(false);
   const [dossierLlmMode, setDossierLlmMode] = useState<'synthese' | 'contradictoire' | 'points_cles' | null>(null);
+  /** Question / centre d'intérêt (facultatif) : permet au pré-filtre local Winnow
+   *  d'écarter aussi les passages sans rapport avec elle. */
+  const [dossierFocus, setDossierFocus] = useState('');
+  const [dossierComplete, setDossierComplete] = useState(false);
+  /** Rapport du dernier filtrage (ce qui a été retiré avant l'envoi au LLM). */
+  const [winnowReport, setWinnowReport] = useState<WinnowReport | null>(null);
 
   const isInDossier = useCallback((id: string) =>
     dossier.some((d) => d.id === id), [dossier]);
@@ -140,7 +155,7 @@ export function useDossiers(
   /** Ouvre un document stocké dans le dossier sans appel réseau */
   const openDossierItem = useCallback((item: DossierItem) => {
     const content_ = extractTextContent(item.raw, item.type as ViewedDoc['type'], item.titre);
-    const contenuLlm = stripHtml(content_.body);
+    const contenuLlm = htmlToPlainBlocks(content_.body);
     setDocStack((prev) => viewedDoc ? [...prev, viewedDoc] : prev);
     setViewedDoc({
       id: item.id,
@@ -173,6 +188,11 @@ export function useDossiers(
     });
   }, [activeDossierId]);
 
+  // « Compléter via Légifrance / Judilibre » : désactivé par défaut (et à chaque session) —
+  // une analyse de dossier est une restitution factuelle, sans outil, tant que l'utilisateur
+  // n'a pas explicitement autorisé le complément. Inopérant si aucun serveur officiel n'est activé.
+  const completeActive = dossierComplete && officialMcpAvailable;
+
   const sendDossierToLlm = useCallback(async (mode: 'synthese' | 'contradictoire' | 'points_cles') => {
     if (dossier.length === 0 || !activeDossierId) return;
     setDossierLlmLoading(true);
@@ -188,26 +208,20 @@ export function useDossiers(
         body: JSON.stringify({
           mode: `dossier_${mode}`,
           dossier: dossier.map((d) => ({ titre: d.titre, source: d.source, type: d.type, contenu: d.contenu })),
+          focus: dossierFocus.trim() || undefined,
+          winnow_enabled: winnowEnabled,
+          completer: completeActive,
         }),
       });
       const data = await res.json();
+      setWinnowReport((data.winnow as WinnowReport | undefined) ?? null);
       if (data.message) {
-        // `data.message` n'est QUE le prompt formaté côté backend (cf.
-        // envoyer_chat dans routes.rs, qui ne fait qu'assembler le texte à
-        // envoyer au LLM, sans l'appeler lui-même). La vraie synthèse n'existe
-        // qu'une fois le streaming terminé côté chat principal — `onSendToChat`
-        // l'attend et nous la renvoie. C'est CETTE réponse (et non le prompt)
-        // qu'il faut archiver : sinon deux analyses du même mode sur le même
-        // dossier produisent un prompt identique et donc une entrée d'historique
-        // indiscernable, et son contenu (corpus brut) n'a pas la mise en forme
-        // (titres, listes, gras) de la vraie réponse du LLM.
-        const finalResponse = await onSendToChat(data.message);
+
+        const finalResponse = await onSendToChat(data.message, { completeWithMcp: completeActive });
         if (finalResponse) {
-          // Rattache la réponse au dossier lui-même (pas seulement au chat, qui
-          // repart à zéro à la prochaine analyse — cf. sendMessage côté
-          // App.tsx) : historique daté, la plus récente en dernier, plafonné
-          // pour ne pas faire grossir indéfiniment le localStorage (mêmes
-          // ordres de grandeur que le plafond sur `items`, cf. toggleDossier).
+          // Rattache la réponse au dossier lui-même : historique daté, la plus
+          // récente en dernier, plafonné pour ne pas faire grossir indéfiniment
+          // le localStorage.
           const entry: DossierAnalysis = {
             id: `analyse_${Date.now()}`,
             mode,
@@ -230,7 +244,7 @@ export function useDossiers(
       setDossierLlmLoading(false);
       setDossierLlmMode(null);
     }
-  }, [dossier, activeDossierId, onSendToChat]);
+  }, [dossier, activeDossierId, onSendToChat, dossierFocus, winnowEnabled, completeActive]);
 
   /** Retire une analyse de l'historique du dossier actif. */
   const removeDossierAnalysis = useCallback((analysisId: string) => {
@@ -244,10 +258,8 @@ export function useDossiers(
     });
   }, [activeDossierId]);
 
-  /** Réaffiche une analyse déjà générée dans le chat, SANS réappeler le LLM
-   *  (relecture d'un historique déjà stocké, pas une nouvelle demande —
-   *  `onSendToChat` enverrait ce texte comme une nouvelle question à
-   *  l'assistant, ce qui n'a pas de sens ici). */
+  /** Réaffiche une analyse déjà générée dans le chat, sans réappeler le LLM
+   *  (relecture d'un historique déjà stocké */
   const reopenDossierAnalysis = useCallback((analysis: DossierAnalysis) => {
     onShowInChat(analysis.message);
   }, [onShowInChat]);
@@ -272,6 +284,8 @@ export function useDossiers(
     renameValue, setRenameValue,
     activeDossier, dossier,
     dossierLlmLoading, dossierLlmMode,
+    dossierFocus, setDossierFocus, winnowReport,
+    dossierComplete, setDossierComplete,
     isInDossier,
     createDossier, renameDossier, deleteDossier, toggleDossier,
     openDossierItem, removeDossierItem, clearDossier,

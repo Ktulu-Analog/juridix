@@ -1,6 +1,6 @@
 [package]
 name = "juridix"
-version = "1.0.0"
+version = "1.1.4"
 description = "Juridix – Assistant juridique IA"
 authors = ["Pierre Couget <ktulu.analog@gmail.com>"]
 edition = "2021"
@@ -37,9 +37,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
-# Database
-rusqlite = { version = "0.31", features = ["bundled"] }
+# Database — SQLCipher (base chiffrée, clé dans le trousseau système, voir
+# secrets.rs) plutôt que SQLite en clair. "vendored-openssl" évite toute
+# dépendance à une lib crypto système : requiert Perl au moment du build
+# (voir README, section Prérequis) mais rien de plus à l'exécution.
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 tokio-rusqlite = "0.5"
+
+# Trousseau système (Keychain macOS, Credential Manager Windows, Secret
+# Service Linux via zbus — pur Rust, aucune dépendance système sur Linux).
+keyring = "4"
+rand = "0.8"
 
 # Logging
 tracing = "0.1"
@@ -62,7 +70,10 @@ regex = "1"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
 
 pdf-extract = "0.10"
+sha2 = "0.10"
 zip = "2"
+# Vérification des signatures minisign du pack MCP (aucune dépendance transitive)
+minisign-verify = "0.3"
 quick-xml = { version = "0.36", features = ["serialize"] }
 encoding_rs = "0.8"
 urlencoding = "2"

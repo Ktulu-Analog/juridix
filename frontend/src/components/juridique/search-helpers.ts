@@ -1,15 +1,20 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Helpers de recherche/résultats
+// Juridix — Assistant IA juridique desktop
 // ============================================================================
-// Fonctions pures (aucun état) utilisées à la fois par useJuridiqueSearch,
-// useDocumentViewer et le JSX resté dans JuridiquePanel.tsx (liste de
-// résultats, badges…) — d'où leur isolement dans un module à part plutôt
-// que dans l'un ou l'autre hook.
-//
-// Extrait de JuridiquePanel.tsx (étape 5 du refactor — cf. discussion du
-// 05/07/2026).
+// Auteur  : Pierre COUGET
 // Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
+
+// ============================================================================
+// Espace "Recherche juridique" — Helpers de recherche/résultats
+// ============================================================================
+
 
 import { stripHtml, toHtmlString, formatLegiDate } from './content/html-helpers';
 import { FONDS_SANS_RECHERCHE_TEXTUELLE } from './constants';
@@ -27,8 +32,7 @@ export function fondRequiresQuery(source: Source, fond: Fond): boolean {
 }
 
 /** Formate une date Légifrance — accepte timestamp ms (number ou string),
- *  ISO 8601 avec ou sans timezone, ou YYYY-MM-DD.
- *  Robuste face aux engines WebKit/Tauri qui rejettent certains formats. */
+ *  ISO 8601 avec ou sans timezone, ou YYYY-MM-DD. */
 export function extractTitle(r: SearchResult, src: Source = 'legifrance'): string {
   // ── JUDILIBRE ─────────────────────────────────────────────────────────────
   if (src === 'judilibre') {
@@ -62,19 +66,6 @@ export function extractTitle(r: SearchResult, src: Source = 'legifrance'): strin
 /**
  * Renvoie l'identifiant exploitable pour ouvrir le DOCUMENT pointé par un
  * résultat de recherche — PAS l'identifiant du texte qui le contient.
- *
- * D'après le swagger officiel Légifrance (definitions SearchResult /
- * SearchTitle / SearchSection / SearchExtract) :
- *   - `titles[].id` et `titles[].cid` identifient le TEXTE entier
- *     (LEGITEXT/JORFTEXT) → valable pour /consult/code ou /consult/legiPart,
- *     jamais pour /consult/getArticle.
- *   - `sections[].extracts[].id` identifie le FRAGMENT effectivement trouvé
- *     par la recherche (article LEGIARTI/JORFARTI, section JORFSCTA…) →
- *     c'est la seule source fiable pour /consult/getArticle.
- *
- * Pour les fonds CODE_*, on veut la table des matières du code, donc l'id de
- * texte (titles[].cid) reste pertinent. Pour tous les autres fonds (LODA,
- * JORF…), on doit prioriser l'extract le plus profond.
  */
 export function extractResultId(r: SearchResult, isCodeFond: boolean): string {
   if (r.id) return r.id;
@@ -101,11 +92,7 @@ export function extractDate(r: SearchResult): string {
 
 /**
  * LÉGIFRANCE — extrait le premier snippet de texte surligné trouvé dans
- * `sections[].extracts[].values` (balisé en <mark> par l'API PISTE). C'est
- * l'équivalent fonctionnel des `highlights` Judilibre : un aperçu du passage
- * où les termes recherchés apparaissent dans le document.
- * Renvoie `null` si aucun extrait n'est disponible (cas fréquent pour les
- * fonds qui ne renvoient que des `titles[].title` surlignés, sans extracts).
+ * `sections[].extracts[].values` (balisé en <mark> par l'API PISTE).
  */
 export function extractLegifranceHighlight(r: SearchResult): string | null {
   for (const section of r.sections || []) {
@@ -131,18 +118,6 @@ export function solutionModifier(sol: string): string {
 /**
  * Normalisation des 4 fonds "spéciaux" (BOCC, débats parlementaires,
  * questions écrites parlementaires, documents administratifs).
- *
- * Ces fonds ne passent PAS par `/search` (ils n'existent pas dans l'enum
- * `SearchRequestDTO.fond` du swagger officiel) : ils n'ont que des
- * points d'entrée `/list/*` dédiés, sans capacité de recherche plein texte
- * pour 3 d'entre eux (seul BOCC accepte un filtre `titre` en sous-chaîne).
- * Leurs objets n'ont pas non plus la forme `SearchResult` standard (pas de
- * `titles[]`, parfois pas de `title` du tout) — on synthétise donc `id`,
- * `title` et `date` ici pour que `extractTitle`/`extractDate`/
- * `extractResultId` fonctionnent sans modification, tout en conservant tous
- * les champs d'origine (nécessaires au rendu fidèle dans extractTextContent
- * et pour permettre l'ouverture du document sans second appel réseau — voir
- * `openDocument`).
  */
 export function normalizeBoccTextResult(t: Record<string, unknown>): SearchResult {
   const title = stripHtml(toHtmlString(t.title || t.enteteTitle)) || 'Texte BOCC';
@@ -171,14 +146,6 @@ export function normalizeQuestionResult(q: Record<string, unknown>): SearchResul
   const dateParution = (q.dateParution as string) || '';
   const dateLabel = dateParution ? formatLegiDate(dateParution) : '';
   const title = [emetteur, dateLabel].filter(Boolean).join(' — ') || 'Question écrite parlementaire';
-  // `id` est vide en pratique sur une partie des résultats renvoyés par
-  // `/list/questionsEcritesParlementaires` (même défaut de données que celui
-  // déjà corrigé pour BOCC ci-dessus, cf. normalizeBoccTextResult) — malgré
-  // le typage `string` du swagger officiel (EsQuestionsEcritesParlementaires),
-  // qui ne garantit pas la non-nullité du champ côté données réelles PISTE.
-  // Repli sur les autres identifiants du schéma, toujours renseignés :
-  // `idTechInjection`/`refInjection` (identifiants techniques d'injection),
-  // puis `pdfName`/`pathToFile` (nom du fichier PDF source, comme pour BOCC).
   const id = (q.id as string)
     || (q.idTechInjection as string)
     || (q.refInjection as string)
@@ -190,10 +157,6 @@ export function normalizeQuestionResult(q: Record<string, unknown>): SearchResul
 
 export function normalizeDocAdminResult(a: Record<string, unknown>): SearchResult {
   const title = stripHtml(toHtmlString(a.titre)) || 'Document administratif';
-  // Même précaution que pour QUESTION_ECRITE ci-dessus : repli sur un
-  // identifiant technique si `id` est vide (champs confirmés par le schéma
-  // officiel DocumentAdministratif : idTechInjection, refInjection,
-  // attachmentName — pas de champ `cid` sur ce schéma).
   const id = (a.id as string)
     || (a.idTechInjection as string)
     || (a.refInjection as string)

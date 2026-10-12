@@ -1,15 +1,22 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Dispatcher d'extraction de contenu
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
 // ============================================================================
 // Point d'entrée unique appelé par JuridiquePanel.tsx : route vers le module
 // d'extraction dédié à chaque fonds. Chaque module (extract-*.ts) porte les
 // commentaires expliquant le schéma officiel utilisé et les pièges déjà
 // rencontrés — voir ces fichiers avant de corriger un bug de mapping de
 // champ pour un fonds donné.
-//
-// Extrait de JuridiquePanel.tsx (étape 2 du refactor — cf. discussion du
-// 04/07/2026).
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 import { stripHtml, toHtmlString, sanitizeHtml } from './html-helpers';

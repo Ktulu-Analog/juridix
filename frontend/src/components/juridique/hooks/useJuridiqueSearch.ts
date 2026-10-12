@@ -1,5 +1,18 @@
 // ============================================================================
-// Juridix — Espace "Recherche juridique" — Hook useJuridiqueSearch
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Espace "Recherche juridique" — Hook useJuridiqueSearch
 // ============================================================================
 // État et logique du formulaire de recherche : tous les filtres (fond,
 // source, dates, facettes Légifrance/JUDILIBRE…), taxonomies JUDILIBRE
@@ -7,20 +20,6 @@
 // /rechercher, /bocc-texts-list ou les endpoints de liste des fonds
 // "spéciaux"), historique de requêtes, pagination.
 //
-// Autonome : ne dépend d'aucun état externe au hook, à l'exception de
-// `facetsOpen` (état d'affichage du panneau de facettes, resté dans
-// JuridiquePanel.tsx car purement UI) qui conditionne le préchargement des
-// taxonomies JUDILIBRE.
-//
-// Point de couplage documenté avec useDocumentViewer : `resultsFond` /
-// `resultsSource` (fond/source figés au moment de LA recherche qui a produit
-// `results`) sont passés par le JSX de JuridiquePanel.tsx à `openDocument`
-// lors d'un clic sur un résultat — mais ce hook n'a lui-même aucune
-// connaissance de useDocumentViewer.
-//
-// Extrait de JuridiquePanel.tsx (étape 5 du refactor — cf. discussion du
-// 05/07/2026).
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 import { useState, useCallback, useEffect, type FormEvent } from 'react';

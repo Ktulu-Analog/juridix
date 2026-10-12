@@ -11,7 +11,7 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-import React, { useState, memo, useMemo } from 'react';
+import React, { useState, memo, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -21,6 +21,9 @@ import { RagSourcesBadge } from './RagSourcesBadge';
 import type { RagSource } from './RagSourcesBadge';
 import { normalizeLatex, normalizeHeadings } from '../utils/text';
 import { hasArtifacts } from '../utils/artifacts';
+import { CitationContext } from './CitationBadge';
+import { annotateCitations, useCitationReport, type CitationGrounding } from '../utils/citations';
+import type { ToolsScope } from '../utils/officialMcp';
 
 export interface Attachment {
   filename: string;
@@ -38,6 +41,15 @@ export interface ChatMessage {
   streaming?: boolean;
   attachments?: Attachment[] | null;
   ragSources?: RagSource[];
+  /** Réponse produite à partir de documents fournis au modèle (analyse de dossier,
+   *  pièces jointes) : active l'ancrage des citations (« hors sources »). */
+  grounded?: boolean;
+  /** Clés d'ancrage des résultats d'outils MCP et extraits RAG de ce tour (cf. SSE `grounding`). */
+  groundingKeys?: string[];
+  /** Portée des outils MCP de cette réponse : `none` / `official` pour une analyse de dossier
+   *  (voir utils/officialMcp.ts) ; absent = chat ordinaire. Mémorisé pour que « régénérer »
+   *  et « modifier » respectent le choix fait à l'origine. */
+  toolsScope?: ToolsScope;
 }
 
 interface MessageProps {
@@ -49,6 +61,8 @@ interface MessageProps {
   onStop: () => void;
   isLast: boolean;
   loading: boolean;
+  /** Ce que le modèle a reçu pour ce message (stable : lu seulement au lancement de la vérification). */
+  getGrounding?: (msgIndex: number) => CitationGrounding | null;
 }
 
 /**
@@ -76,7 +90,7 @@ function extractWordTitle(content: string): string | null {
 }
 
 export const Message = memo(function Message({
-  msg, msgIndex, onOpenArtifacts, onRegenerate, onEditResend, onStop, isLast, loading,
+  msg, msgIndex, onOpenArtifacts, onRegenerate, onEditResend, onStop, isLast, loading, getGrounding,
 }: MessageProps) {
   const streamingComponents = useMemo(() => makeMdComponents(true),  []);
   const finalComponents     = useMemo(() => makeMdComponents(false), []);
@@ -84,6 +98,20 @@ export const Message = memo(function Message({
   const isUser = msg.role === 'user';
   const contentStr = typeof msg.content === 'string' ? msg.content : '';
   const showArtifactsBtn = !isUser && !msg.streaming && hasArtifacts(contentStr);
+
+  // Chantier 4 : vérification en arrière-plan des références d'articles citées
+  // (réponses terminées uniquement). `null` tant que non vérifié ou indisponible.
+  // Ancrage (« hors sources ») seulement pour une réponse produite à partir de documents.
+  const groundedFlag = !!msg.grounded;
+  const groundingGetter = useCallback(
+    () => (groundedFlag && getGrounding ? getGrounding(msgIndex) : null),
+    [groundedFlag, getGrounding, msgIndex],
+  );
+  const citationReport = useCitationReport(contentStr, !isUser && !msg.streaming, groundingGetter);
+  const renderedContent = useMemo(
+    () => annotateCitations(contentStr, citationReport),
+    [contentStr, citationReport],
+  );
 
   // Titre du document Word pour le texte d'accompagnement (null si pas de bloc word)
   // Mémoïsé pour éviter de re-parser le contenu (potentiellement long) à chaque frappe dans le ChatInput
@@ -152,9 +180,11 @@ export const Message = memo(function Message({
               )
               : (
                 <div className="bubble-markdown">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={finalComponents}>
-                    {normalizeHeadings(normalizeLatex(contentStr))}
-                  </ReactMarkdown>
+                  <CitationContext.Provider value={citationReport}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={finalComponents}>
+                      {normalizeHeadings(normalizeLatex(renderedContent))}
+                    </ReactMarkdown>
+                  </CitationContext.Provider>
                 </div>
               )
         }

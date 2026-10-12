@@ -233,7 +233,41 @@ function hasPieSeries(option: EChartsOption): boolean {
  * Pour les pie/donut charts, la légende est placée à gauche en vertical
  * et le centre du camembert est décalé pour éviter tout chevauchement.
  */
-export function mergeEChartsOption(option: EChartsOption): EChartsOption {
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Contre-mesure à CVE-2026-45249 (XSS ECharts < 6.1.0) : l'infobulle d'une série
+ * `lines` injecte `data[i].name` en HTML brut. Les options viennent du LLM, donc
+ * d'un contenu non fiable : on échappe ces noms. Devenu inutile après la
+ * montée de version vers ECharts ≥ 6.1.0 (changement majeur, à tester).
+ */
+function escapeLinesSeriesNames(option: EChartsOption): EChartsOption {
+  const raw = option.series as unknown;
+  if (!raw) return option;
+  const list = (Array.isArray(raw) ? raw : [raw]) as Record<string, unknown>[];
+  if (!list.some((s) => s?.type === 'lines')) return option;
+  const fixed = list.map((sr) => {
+    if (sr?.type !== 'lines' || !Array.isArray(sr.data)) return sr;
+    const data = (sr.data as unknown[]).map((d) => {
+      const item = d as Record<string, unknown> | null;
+      return item && typeof item === 'object' && typeof item.name === 'string'
+        ? { ...item, name: escapeHtml(item.name) }
+        : d;
+    });
+    return { ...sr, data };
+  });
+  return { ...option, series: (Array.isArray(raw) ? fixed : fixed[0]) as EChartsOption['series'] };
+}
+
+export function mergeEChartsOption(rawOption: EChartsOption): EChartsOption {
+  const option = escapeLinesSeriesNames(rawOption);
   const merged: EChartsOption = { ...ECHARTS_DEFAULTS, ...option };
   const baseLegend = ECHARTS_DEFAULTS.legend as Record<string, unknown>;
   const userLegend = (Array.isArray(option.legend) ? option.legend[0] : option.legend) as Record<string, unknown> | undefined;

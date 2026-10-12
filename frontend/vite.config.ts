@@ -33,5 +33,8 @@ export default defineConfig({
   build: {
     outDir: 'build',
     emptyOutDir: true,
+    // Aucun asset inliné en data: URI : la CSP garde `font-src 'self'` strict
+    // (les polices KaTeX/fontsource restent des fichiers servis par l'application).
+    assetsInlineLimit: 0,
   },
 });
