@@ -69,7 +69,7 @@ regex = "1"
 # JWT pour Qdrant granular access keys
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
 
-pdf-extract = "0.10"
+pdf-extract = "0.12"
 sha2 = "0.10"
 zip = "2"
 # Vérification des signatures minisign du pack MCP (aucune dépendance transitive)

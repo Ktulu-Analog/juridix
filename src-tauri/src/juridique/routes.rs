@@ -104,7 +104,7 @@ impl JuridiqueState {
             }
         });
     }
-
+    #[allow(clippy::result_large_err)]
     pub async fn client_async(&self) -> Result<PisteClient, Response> {
         let g = self.piste_client.read().await;
         g.clone().ok_or_else(|| {
