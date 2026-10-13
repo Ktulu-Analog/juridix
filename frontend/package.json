@@ -1,6 +1,6 @@
 {
   "name": "juridix-frontend",
-  "version": "1.1.0",
+  "version": "1.1.4",
   "private": true,
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",
