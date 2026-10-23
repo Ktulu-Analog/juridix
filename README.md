@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Ktulu-Analog/juridix/actions/workflows/ci.yml/badge.svg)](https://github.com/Ktulu-Analog/juridix/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.5-green.svg)](CHANGELOG.md)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8D8?logo=tauri)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-1.77+-orange?logo=rust)](https://rustup.rs)
 
@@ -46,11 +46,13 @@ L'application est **souveraine par conception** :
 
 ---
 
-## Version 1.1.4
+## Version 1.1.5
 
 Synthèse de veille, droits RGPD (export et effacement), vérification des citations, veille
 juridique en tâche de fond, serveurs MCP officiels Légifrance/Judilibre et durcissement
-de la sécurité. Détail complet : [CHANGELOG.md](CHANGELOG.md).
+de la sécurité. La 1.1.5 rend la **signature du pack MCP obligatoire**, remplace l'évaluation
+des blocs ECharts par une analyse JSON et met à jour les dépendances vulnérables. Détail complet :
+[CHANGELOG.md](CHANGELOG.md).
 
 **À savoir en mettant à jour depuis la 1.0.0 :**
 
@@ -61,6 +63,9 @@ de la sécurité. Détail complet : [CHANGELOG.md](CHANGELOG.md).
    (une bannière le rappelle) ; ils ne sont jamais écrits en clair sur le disque.
 4. **Sauvegarde en clair** : si une ancienne base a été migrée vers SQLCipher, supprimez
    `conversations.db.pre-encryption.bak` depuis *Réglages → Données et confidentialité*.
+5. **Serveurs MCP officiels déjà installés** (depuis la 1.1.4 ou avant) : à **réimporter une fois**
+   (*Réglages → Serveurs MCP → Serveurs officiels*), car la signature du pack est désormais vérifiée
+   et l'empreinte du binaire est enregistrée dans le trousseau.
 
 ---
 

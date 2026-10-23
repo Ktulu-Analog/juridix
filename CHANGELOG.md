@@ -23,6 +23,15 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
   par `JSON.parse` (`frontend/src/utils/echartsOption.ts`), avec validation de l'arbre et retrait des
   balises HTML des chaînes.
 
+### Dépendances
+
+- **Frontend** : `echarts` 6.1, `katex` 0.19 (forcé pour `mermaid`, `rehype-katex` et `remark-math`
+  via `overrides`) et `dompurify` 3.4.17 (indirect, via `mermaid`) ; `npm audit` ne signale plus rien.
+- **Rust** : `rustls` 0.23.46, `rustls-webpki` 0.103.16, `webpki-roots` 1.0.10, `ctutils` 0.4.5 et
+  `zip` 9 (la lecture du nom d'entrée est adaptée ; les chemins absolus sont refusés explicitement
+  à l'extraction du pack MCP).
+- **CI** : l'étape d'audit n'est plus informative (`continue-on-error` retiré) ; `cargo fmt` appliqué.
+
 ---
 
 ## [1.1.4] — 2026-10-12
