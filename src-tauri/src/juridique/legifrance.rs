@@ -1,40 +1,18 @@
 // ============================================================================
-// Juridix — Module Juridique — legifrance.rs
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
 // ============================================================================
 // Fonctions de recherche Légifrance (API PISTE).
-//
-// Corrections / ajouts par rapport à la version initiale :
-//
-//   1. `suggest` : l'endpoint POST /suggest attend un body JSON
-//      { "searchText": "...", "supplies": [...] }, PAS un GET avec query
-//      params. L'ancienne implémentation utilisait GET /suggest?query=…
-//      ce qui est incorrect (=> HTTP 404 ou 400).
-//
-//   2. `get_loda_part` / `get_code_table_matieres` : l'API attend
-//      { "textId": "...", "date": "YYYY-MM-DD" } (LegiConsultRequest),
-//      pas { "id": "..." }. Corrigé + ajout du paramètre `date`.
-//
-//   3. `get_juri` : l'API attend { "textId": "..." } (JuriConsultRequest).
-//      Corrigé (l'ancienne version envoyait { "id": "..." }).
-//
-//   4. `get_kali_text` : l'API attend { "id": "..." } (KaliTextConsultRequest).
-//      Correct — conservé.
-//
-//   5. `get_cnil` : l'API attend { "textId": "..." } (CnilConsultRequest).
-//      Corrigé.
-//
-//   6. `get_circulaire` : l'API attend { "id": "..." } (CirculaireConsultRequest).
-//      Correct — conservé.
-//
-//   7. `get_acco` : renommé depuis l'ancien get_kali_article (confusion de
-//      endpoint). POST /consult/acco attend { "id": "..." }.
-//
-//   8. Nouveaux endpoints : get_section_by_cid, get_loda_list, get_code_list,
-//      get_jorf_part, get_dossier_legislatif, get_code_consult,
-//      get_article_with_id_and_num, ping.
-//
-//   9. Règles anti-500 : pageSize ≤ 100, pageNumber ≥ 1, NOM_CODE →
-//      TEXT_NOM_CODE sur CODE_DATE/CODE_ETAT, fond ALL sans filtres.
 // ============================================================================
 
 use anyhow::{anyhow, Result};

@@ -1,21 +1,18 @@
 // ============================================================================
-// Juridix — Module Juridique — judilibre.rs
+// Juridix — Assistant IA juridique desktop
 // ============================================================================
-// Fonctions de recherche JUDILIBRE (décisions de justice — Cour de cassation,
-// Cours d'appel, Tribunaux judiciaires, Conseil d'État).
-// API REST — GET avec query params.
-//
-// Corrections / ajouts par rapport à la version initiale :
-//   - Paramètres manquants ajoutés au struct : location, with_file_of_type,
-//     particular_interest (présents dans le swagger officiel).
-//   - Pagination : l'API JUDILIBRE utilise `page` (index base 0) et
-//     `page_size`. Les champs `batch`/`batch_size` sont conservés comme
-//     alias pour la rétrocompatibilité avec routes.rs, mais la sérialisation
-//     vers l'URL utilise les noms officiels (`page` / `page_size`).
-//   - `sort` officiel : "score" | "scorepub" | "date" (défaut scorepub).
-//     L'ancien champ `order` correspond à l'ordre du tri ("asc"/"desc").
-//   - `export` : nouvelle fonction pour le téléchargement en lot.
-//   - `get_decision` : ajout du paramètre `query` (highlighting contextuel).
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
+// Fonctions de recherche JUDILIBRE
 // ============================================================================
 
 use anyhow::Result;
