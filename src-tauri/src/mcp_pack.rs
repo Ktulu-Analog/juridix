@@ -570,17 +570,28 @@ fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), Stri
         let mut entry = zip
             .by_index(i)
             .map_err(|e| format!("archive illisible : {e}"))?;
+        // zip ≥ 9 : `name()` renvoie un `Result` (nom non UTF-8 possible) ;
+        // on n'en a besoin que pour les messages d'erreur.
+        let entry_name = entry
+            .name()
+            .map(|n| n.into_owned())
+            .unwrap_or_else(|_| "<nom illisible>".to_string());
         // `enclosed_name` rejette `..` et les chemins absolus (« zip slip »).
-        let rel = entry
-            .enclosed_name()
-            .ok_or_else(|| format!("chemin dangereux dans l'archive : {}", entry.name()))?;
+        // Depuis zip 9, `enclosed_name` retire le `/` initial d'un chemin absolu au lieu
+        // de le rejeter : on refuse explicitement ces chemins.
+        let absolute = entry_name.starts_with('/') || entry_name.starts_with('\\');
+        let rel = (if absolute {
+            None
+        } else {
+            entry.enclosed_name()
+        })
+        .ok_or_else(|| format!("chemin dangereux dans l'archive : {entry_name}"))?;
         let mut comps = rel.components();
         match comps.next() {
             Some(Component::Normal(first)) if first == id => {}
             _ => {
                 return Err(format!(
-                    "entrée hors de « {id}/ » dans l'archive : {}",
-                    entry.name()
+                    "entrée hors de « {id}/ » dans l'archive : {entry_name}"
                 ))
             }
         }
@@ -592,8 +603,7 @@ fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), Stri
         }
         if entry.is_symlink() {
             return Err(format!(
-                "lien symbolique refusé dans l'archive : {}",
-                entry.name()
+                "lien symbolique refusé dans l'archive : {entry_name}"
             ));
         }
         total = total.saturating_add(entry.size());
@@ -610,7 +620,7 @@ fn extract_server_zip(bytes: &[u8], id: &str, staging: &Path) -> Result<(), Stri
             .read_to_end(&mut data)
             .map_err(|e| format!("décompression : {e}"))?;
         if data.len() as u64 != entry.size() {
-            return Err(format!("taille incohérente pour {}", entry.name()));
+            return Err(format!("taille incohérente pour {entry_name}"));
         }
         let mut f = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
         f.write_all(&data).map_err(|e| e.to_string())?;

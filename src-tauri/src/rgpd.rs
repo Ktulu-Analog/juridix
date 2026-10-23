@@ -780,7 +780,7 @@ mod tests {
 
         let mut a = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
         let noms: Vec<String> = (0..a.len())
-            .map(|i| a.by_index(i).unwrap().name().to_string())
+            .map(|i| a.by_index(i).unwrap().name().unwrap().to_string())
             .collect();
         for attendu in [
             "LISEZMOI.txt",

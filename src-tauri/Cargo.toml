@@ -71,7 +71,7 @@ jsonwebtoken = { version = "10", default-features = false, features = ["rust_cry
 
 pdf-extract = "0.12"
 sha2 = "0.10"
-zip = "2"
+zip = "9"
 # Vérification des signatures minisign du pack MCP (aucune dépendance transitive)
 minisign-verify = "0.3"
 quick-xml = { version = "0.41", features = ["serialize"] }
