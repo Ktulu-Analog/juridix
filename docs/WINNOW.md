@@ -105,14 +105,6 @@ elle-même (*si* le filtre tourne) est une case à cocher dans les Réglages, pa
 - **Périmètre actuel** : dossiers et documents envoyés via « Analyser le dossier » / `envoyer-chat`. Pas
   (encore) les chunks RAG (le reranker fait déjà ce travail) ni les résultats d'outils MCP (JSON : un
   découpage textuel risquerait d'en casser la structure).
-- **Dossiers déjà stockés** : leur `contenu` a été aplati par l'ancien `stripHtml` ; le segmenteur sait
-  retrouver les coupures sur les marqueurs usuels (`Article…`, `Attendu que…`, `Vu…`) mais un dossier
-  ré-ajouté avec la version actuelle sera mieux découpé.
 - **Modèles encodeurs plus légers** (`nli`, `gliclass`, `laya`) : mêmes formes de réponse, utilisables sur CPU,
-  mais contextes courts (`laya` : 512 tokens → `WINNOW_MAX_PASSAGE_CHARS≈1200`). Non testés ici.
+  mais contextes courts (`laya` : 512 tokens → `WINNOW_MAX_PASSAGE_CHARS≈1200`).
 
-## Pistes suivantes
-
-- `ollaya create -f Modelfile` pour figer les questions et **recalibrer** les températures sur vos données annotées.
-- Étendre à la sortie des outils MCP Légifrance (après extraction du texte des champs JSON).
-- Question supplémentaire « ce passage vise-t-il une version abrogée ? » à partir des métadonnées `etat`.

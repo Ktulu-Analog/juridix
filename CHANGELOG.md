@@ -7,6 +7,24 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ---
 
+## [1.1.5] — 2026-10-23
+
+### Sécurité
+
+- **Pack MCP** : la signature minisign de `checksums.txt` est vérifiée avec la clé publique
+  du fichier `src-tauri/mcp-pack.pub` — **la même clé et la même signature que Demeter** (commentaire
+  signé `demeter-mcp-pack version:<version>`, produit par `sign-mcp-pack.sh`). La variable
+  `JURIDIX_MCP_PACK_PUBKEY` est supprimée. Une build de release ne compile que si `mcp-pack.pub`
+  contient une clé ; le mode de transition « SHA-256 seul » n'existe plus dans les binaires publiés.
+  L'empreinte SHA-256 du binaire installé est enregistrée dans le trousseau système et revérifiée
+  avant chaque lancement (échec fermé). Les installations existantes doivent réimporter les serveurs
+  une fois.
+- **ECharts** : les blocs `echarts` ne sont plus évalués par `new Function` mais analysés
+  par `JSON.parse` (`frontend/src/utils/echartsOption.ts`), avec validation de l'arbre et retrait des
+  balises HTML des chaînes.
+
+---
+
 ## [1.1.4] — 2026-10-12
 
 ### À savoir en mettant à jour

@@ -623,6 +623,8 @@ impl Hub {
             ));
         }
         let bin = mcp_pack::resolve_bin(&found)?;
+        // AUDIT E-01 : contrôle d'intégrité du binaire avant chaque lancement.
+        mcp_pack::verify_bin_integrity(&found, &bin)?;
         Ok(ServerDef {
             command: bin.to_string_lossy().to_string(),
             // Fixé par Juridix, jamais lu du manifest.

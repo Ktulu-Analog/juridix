@@ -32,17 +32,17 @@
 //  1. SHA-256 de chaque zip, lu dans `checksums.txt` de la même release : protège d'un
 //     téléchargement corrompu ou tronqué, PAS d'une release compromise (qui pourrait
 //     modifier l'archive ET son empreinte) ;
-//  2. SIGNATURE minisign de `checksums.txt` (`checksums.txt.minisig`), vérifiée avec une
-//     clé publique compilée dans l'application : sans la clé privée, une release altérée ne
-//     peut plus être installée, tout en laissant les mises à jour indépendantes des versions
-//     de Juridix (on ne fige donc pas les empreintes dans le code). La signature désigne la
-//     release (commentaire signé = « juridix-mcp-pack <tag> ») contre le rejeu d'une
-//     ancienne release, et un retour à une version antérieure à celle installée est refusé.
-//     Voir `docs/MCP_PACK_SIGNATURE.md`.
+//  2. SIGNATURE minisign de `checksums.txt` (`checksums.txt.minisig`), vérifiée avec la clé
+//     publique du fichier `src-tauri/mcp-pack.pub` (embarquée à la compilation) : sans la clé
+//     privée, une release altérée ne peut plus être installée, tout en laissant les mises à
+//     jour indépendantes des versions de Juridix (on ne fige donc pas les empreintes dans le
+//     code). Le commentaire signé doit contenir `version:<version>` : c'est le format produit
+//     par `sign-mcp-pack.sh` du dépôt Demeter, MÊME clé et MÊME signature pour Demeter et
+//     Juridix. Il lie la signature à la release (contre le rejeu d'une ancienne release), et un
+//     retour à une version antérieure à celle installée est refusé.
 //
-// Tant qu'aucune clé n'est compilée (`JURIDIX_MCP_PACK_PUBKEY`), seul le niveau 1 s'applique
-// (mode de transition, signalé dans l'interface) ; dès qu'une clé est présente, la signature
-// est OBLIGATOIRE (échec fermé).
+// Une build de release ne compile que si `mcp-pack.pub` contient une clé (voir plus bas) :
+// il n'existe donc pas de binaire publié en « mode de transition » (SHA-256 seul).
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
@@ -64,14 +64,50 @@ const MAX_ENTRIES: usize = 200;
 const MAX_CHECKSUMS_BYTES: u64 = 1024 * 1024;
 const MAX_SIGNATURE_BYTES: u64 = 4096;
 
-/// Clé publique minisign des releases du pack (ligne « RWQ… » du fichier `.pub`), fournie à la
-/// COMPILATION : `JURIDIX_MCP_PACK_PUBKEY=RWQ… cargo tauri build`. Renseignée : la signature
-/// de `checksums.txt` est obligatoire ; absente : mode de transition (SHA-256 seul).
-fn configured_public_key() -> Option<String> {
-    option_env!("JURIDIX_MCP_PACK_PUBKEY")
+/// Clé publique minisign des releases du pack : fichier `src-tauri/mcp-pack.pub`, le MÊME que
+/// celui de Demeter (une seule paire de clés, une seule signature par release du pack).
+/// Format minisign : ligne `untrusted comment: …` puis la clé en base64 (« RWQ… »).
+const EMBEDDED_PUBLIC_KEY_FILE: &str = include_str!("../mcp-pack.pub");
+
+// AUDIT E-01 : en build de RELEASE, la compilation échoue si `mcp-pack.pub` ne contient pas de
+// clé (ligne commençant par « RW »). Il n'existe donc plus de binaire publié fonctionnant en
+// « mode de transition » (SHA-256 seul, que pourrait forger quiconque contrôle la release
+// GitHub). La validité cryptographique de la clé est vérifiée par un test (`cargo test`).
+#[cfg(not(debug_assertions))]
+const _REQUIRE_PACK_PUBKEY: () = {
+    if !has_key_line(EMBEDDED_PUBLIC_KEY_FILE) {
+        panic!(
+            "src-tauri/mcp-pack.pub ne contient pas de clé publique minisign (ligne « RWQ… ») : obligatoire pour une build de release"
+        );
+    }
+};
+
+/// `true` si une ligne du fichier commence par « RW » (clé publique minisign). `const fn` pour
+/// servir au contrôle de compilation ci-dessus.
+#[allow(dead_code)]
+const fn has_key_line(text: &str) -> bool {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i + 1 < b.len() {
+        if (i == 0 || b[i - 1] == b'\n') && b[i] == b'R' && b[i + 1] == b'W' {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Extrait la clé publique (base64) d'un fichier `.pub` minisign : on ignore les lignes vides,
+/// les commentaires `#` et la ligne `untrusted comment:`.
+fn parse_public_key_file(text: &str) -> Option<String> {
+    text.lines()
         .map(str::trim)
-        .filter(|k| !k.is_empty())
+        .find(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("untrusted comment:"))
         .map(str::to_string)
+}
+
+fn configured_public_key() -> Option<String> {
+    parse_public_key_file(EMBEDDED_PUBLIC_KEY_FILE)
 }
 
 // ── Manifest & découverte ─────────────────────────────────────────────────────
@@ -392,13 +428,14 @@ pub struct InstallReport {
 
 /// Vérifie la signature minisign `signature_text` de `data` (`checksums.txt`) avec la clé
 /// publique `public_key_b64`. Seules les signatures pré-hachées (format par défaut de minisign)
-/// sont acceptées, et le commentaire signé doit nommer la release `tag` : une signature
-/// légitime d'une AUTRE release (rejeu) est refusée.
+/// sont acceptées, et le commentaire signé doit contenir `version:<version>` (format de
+/// `sign-mcp-pack.sh` de Demeter) : une signature légitime d'une AUTRE release (rejeu) est
+/// refusée. `version` est le tag sans « v » initial (« v0.3.3 » → « 0.3.3 »).
 pub fn verify_minisign(
     public_key_b64: &str,
     data: &[u8],
     signature_text: &str,
-    tag: &str,
+    version: &str,
 ) -> Result<(), String> {
     let pk = PublicKey::from_base64(public_key_b64.trim())
         .map_err(|e| format!("clé publique de signature invalide : {e}"))?;
@@ -406,9 +443,10 @@ pub fn verify_minisign(
         Signature::decode(signature_text).map_err(|e| format!("signature illisible : {e}"))?;
     pk.verify(data, &sig, false)
         .map_err(|e| format!("signature INVALIDE : {e}"))?;
-    if !sig.trusted_comment().split_whitespace().any(|w| w == tag) {
+    let expected = format!("version:{version}");
+    if !sig.trusted_comment().split_whitespace().any(|w| w == expected) {
         return Err(format!(
-            "la signature ne désigne pas la release {tag} (commentaire signé : « {} ») — rejeu d'une autre release ?",
+            "la signature ne désigne pas la release {version} (commentaire signé : « {} », attendu « {expected} ») — rejeu d'une autre release ?",
             sig.trusted_comment()
         ));
     }
@@ -420,12 +458,13 @@ async fn verify_release_signature(
     src: &PackSource,
     client: &reqwest::Client,
     tag: &str,
+    version: &str,
     checksums: &[u8],
 ) -> Result<SignatureStatus, String> {
     let Some(public_key) = src.public_key.as_deref() else {
         warn!(
-            "MCP: aucune clé de signature compilée — intégrité du pack limitée au SHA-256 de la release \
-             (voir docs/MCP_PACK_SIGNATURE.md)"
+            "MCP: aucune clé de signature (mcp-pack.pub) — intégrité du pack limitée au SHA-256 de la release \
+             (build de développement uniquement)"
         );
         return Ok(SignatureStatus::NotConfigured);
     };
@@ -434,7 +473,7 @@ async fn verify_release_signature(
         .map_err(|e| format!("signature de la release {tag} introuvable (checksums.txt.minisig) — installation refusée : {e}"))?;
     let sig = String::from_utf8(sig)
         .map_err(|_| "signature illisible (UTF-8) — installation refusée".to_string())?;
-    verify_minisign(public_key, checksums, &sig, tag)
+    verify_minisign(public_key, checksums, &sig, version)
         .map_err(|e| format!("{e} — installation refusée"))?;
     info!("MCP: signature de la release {tag} vérifiée");
     Ok(SignatureStatus::Verified)
@@ -636,6 +675,66 @@ fn install_one(dir: &Path, id: &str, zip_bytes: &[u8]) -> Result<(), String> {
         return Err(format!("installation impossible : {e}"));
     }
     let _ = std::fs::remove_dir_all(&backup);
+    // AUDIT E-01 : empreinte du binaire installé, conservée dans le trousseau système
+    // (hors du dossier des serveurs, inscriptible par tout processus de l'utilisateur).
+    record_bin_hash(&target, id)?;
+    Ok(())
+}
+
+fn bin_hash_key(id: &str) -> String {
+    format!("mcp_bin_sha256_{id}")
+}
+
+/// Chemin du binaire de `id` pour la plateforme courante, d'après son manifest.
+#[cfg_attr(test, allow(dead_code))]
+fn installed_bin_path(server_dir: &Path, id: &str) -> Result<PathBuf, String> {
+    let manifest = read_manifest(server_dir, id)?;
+    let rel = manifest
+        .bin
+        .get(&platform_key())
+        .ok_or_else(|| format!("aucun binaire pour {} dans le manifest", platform_key()))?;
+    if !is_safe_relative(rel) {
+        return Err(format!("chemin de binaire non autorisé dans le manifest : {rel}"));
+    }
+    Ok(server_dir.join(rel))
+}
+
+#[cfg(not(test))]
+fn record_bin_hash(server_dir: &Path, id: &str) -> Result<(), String> {
+    let bin = installed_bin_path(server_dir, id)?;
+    let bytes = std::fs::read(&bin).map_err(|e| format!("lecture du binaire installé : {e}"))?;
+    crate::secrets::store(&bin_hash_key(id), &sha256_hex(&bytes))
+        .map_err(|e| format!("enregistrement de l'empreinte du binaire (trousseau) : {e:#}"))
+}
+
+#[cfg(test)]
+fn record_bin_hash(_server_dir: &Path, _id: &str) -> Result<(), String> {
+    Ok(())
+}
+
+/// À appeler AVANT chaque lancement d'un serveur : le binaire sur disque doit être celui qui a
+/// été installé (et vérifié par signature + SHA-256). Échec fermé : une empreinte absente
+/// (installation antérieure à ce contrôle) ou différente interdit le lancement.
+#[cfg(not(test))]
+pub fn verify_bin_integrity(server: &DiscoveredServer, bin: &Path) -> Result<(), String> {
+    let id = &server.manifest.id;
+    let expected = crate::secrets::read(&bin_hash_key(id))
+        .map_err(|e| format!("lecture de l'empreinte du binaire (trousseau) : {e:#}"))?
+        .ok_or_else(|| {
+            format!("« {id} » : aucune empreinte enregistrée — réimportez le serveur depuis les réglages")
+        })?;
+    let bytes = std::fs::read(bin).map_err(|e| format!("lecture du binaire : {e}"))?;
+    if sha256_hex(&bytes) != expected {
+        warn!("MCP: binaire de « {id} » modifié depuis son installation — lancement refusé");
+        return Err(format!(
+            "« {id} » : le binaire a été modifié depuis son installation — lancement refusé, réimportez le serveur"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn verify_bin_integrity(_server: &DiscoveredServer, _bin: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -678,7 +777,7 @@ pub async fn install(
     )
     .await?;
     // La signature est vérifiée sur les octets bruts, AVANT toute lecture de leur contenu.
-    let signature = verify_release_signature(src, &client, &tag, &checksums).await?;
+    let signature = verify_release_signature(src, &client, &tag, &version, &checksums).await?;
     let checksums =
         String::from_utf8(checksums).map_err(|e| format!("checksums.txt illisible : {e}"))?;
 
@@ -1330,17 +1429,17 @@ pub(crate) mod tests {
 
     // ── Signature des releases (minisign) ─────────────────────────────────────
     //
-    // Vecteurs RÉELS, produits avec l'outil `minisign` 0.11 (clé sans mot de passe, jetable) :
-    //   minisign -S -s A.key -m checksums.txt -t "juridix-mcp-pack v1.2.3"
+    // Vecteurs au format minisign (clés jetables, sans lien avec la clé de production) :
+    //   minisign -S -s A.key -m checksums.txt -t "demeter-mcp-pack version:1.2.3"  (format de sign-mcp-pack.sh)
     // `SIGNED_CHECKSUMS` liste l'empreinte du zip statique `SIGNED_ZIP_B64`, de sorte qu'une
     // installation signée peut être testée de bout en bout sans signer pendant le test.
 
-    const PUBKEY_A: &str = "RWSrafh59lzTrw3mytbsm+gDFOVPIh/DJ1JOisiRIRb0XyYPNl2Wbr23";
-    const PUBKEY_B: &str = "RWT2DFoLgwqafxBlQ44P2slj1kotWVu9ajSa5pIRdDngOyi/OnzcWa05";
+    const PUBKEY_A: &str = "RWSsppOOsLatYF1nHCwCztyOXWw44nYCq6M5iPaxnqRCNU8cTHeabuXc";
+    const PUBKEY_B: &str = "RWSQU/1x+zfz80UASWunKK2nC3mLKsGhsQYS3Zpjjm0kzcXmHeUF5+5S";
     const SIGNED_CHECKSUMS: &str = "94797a1c64db89693e3bd9e0a2fd07093d55478927d20de1c1fff506478f5c21  mcp-legifrance-1.2.3.zip\n";
-    const SIG_OK: &str = "untrusted comment: signature from minisign secret key\nRUSrafh59lzTr8Sm73LoijbiMjEIAEvMP5VBY2Q7PulWIkogShjnSX3iZpd3d1WHQ5XtpgqaN5lTXO1xWYxrDk040D/zXekrbgI=\ntrusted comment: juridix-mcp-pack v1.2.3\nOpoWOCPZ5YLNeM/oy3rvE9QxfbWH4qnTsryE65H0AaqdmhZfe7dOYpJQxM0zJcGsZghj3w+wImuWaYZUm7uFCQ==\n";
-    const SIG_OTHER_RELEASE: &str = "untrusted comment: signature from minisign secret key\nRUSrafh59lzTr8Sm73LoijbiMjEIAEvMP5VBY2Q7PulWIkogShjnSX3iZpd3d1WHQ5XtpgqaN5lTXO1xWYxrDk040D/zXekrbgI=\ntrusted comment: juridix-mcp-pack v1.0.0\nV069krjOReJI8I9SzhcK4cm68580woP+fg0IVeD6s5ZOO97IDCLS9o8R2Fj4SZrb8o9j8SOEzW7wn3Eiuw/5Bw==\n";
-    const SIG_LEGACY: &str = "untrusted comment: signature from minisign secret key\nRWSrafh59lzTr6Hi0bsCNaiJTuq+7rwMb0Ol6XDU7Tc9qaq7RW+W6XVcMIglo+Yd+5Z2JwM1gFhoslZ25FbvdI/Ys7SbBT36Fws=\ntrusted comment: juridix-mcp-pack v1.2.3\n1v0zfOHSMHqk+P/Mtx3pEkaIUA2m4yW3oDaY/zHiLYoPTPu7OjG0P42hf+NS+ogTcPbCjltEYVv9xim5c4mJAw==\n";
+    const SIG_OK: &str = "untrusted comment: signature from minisign secret key\nRUSsppOOsLatYGfWTdRGuXEHkkDHouw7tl4o7081YRRjnS07vcLOwv5x3Ggs+DdfVZObFshnvBcyB4tfKjSWz2a9WgaURbyk9A8=\ntrusted comment: demeter-mcp-pack version:1.2.3\njjbpwNTnjYK51XWe2FKOEMPBxMZbBpWP3ddRxjOcvhNJyhitaSZCb3/2uwZF+P0O2AzRYq2tNpGMYIArCK2uBw==\n";
+    const SIG_OTHER_RELEASE: &str = "untrusted comment: signature from minisign secret key\nRUSsppOOsLatYGfWTdRGuXEHkkDHouw7tl4o7081YRRjnS07vcLOwv5x3Ggs+DdfVZObFshnvBcyB4tfKjSWz2a9WgaURbyk9A8=\ntrusted comment: demeter-mcp-pack version:1.0.0\nC5Ef2giEfl6ixUpgIVjzpul3XB4QrlAXlGGRwO96TiuQirwb3DBqbfOCovEkDPRgzKq8YRT2JOfn6bM32osYAw==\n";
+    const SIG_LEGACY: &str = "untrusted comment: signature from minisign secret key\nRWSsppOOsLatYHBdv7dDC5Ooj81HTcUassnc+X+W+bJZLPR83XP9NTKQ0JGfURTaekH4t89h6GNHpBJK0JgH0+dlkB3HHjoPNAs=\ntrusted comment: demeter-mcp-pack version:1.2.3\nDVeqzFkxru/XIQPmuJjpvqcCZR+LlHVfweiNy45G+8WIuFUStdosBPfwHua4UBNhRGN5iVbfAsa4NtHcpKWiAQ==\n";
     const SIGNED_ZIP_B64: &str = "UEsDBBQAAAAAAAAAIVxn93vklgEAAJYBAAAcAAAAbWNwLWxlZ2lmcmFuY2UvbWFuaWZlc3QuanNvbnsiaWQiOiAibWNwLWxlZ2lmcmFuY2UiLCAibmFtZSI6ICJtY3AtbGVnaWZyYW5jZSIsICJkZXNjcmlwdGlvbiI6ICJ0ZXN0IiwgImJpbiI6IHsibGludXgteDY0IjogImJpbi9tY3AtbGVnaWZyYW5jZS1saW51eC14NjQiLCAibGludXgtYXJtNjQiOiAiYmluL21jcC1sZWdpZnJhbmNlLWxpbnV4LWFybTY0IiwgIm1hY29zLWFybTY0IjogImJpbi9tY3AtbGVnaWZyYW5jZS1tYWNvcy1hcm02NCIsICJtYWNvcy14NjQiOiAiYmluL21jcC1sZWdpZnJhbmNlLW1hY29zLXg2NCIsICJ3aW5kb3dzLXg2NCI6ICJiaW4vbWNwLWxlZ2lmcmFuY2Utd2luZG93cy14NjQiLCAid2luZG93cy1hcm02NCI6ICJiaW4vbWNwLWxlZ2lmcmFuY2Utd2luZG93cy1hcm02NCJ9LCAiYXJncyI6IFsiLS10cmFuc3BvcnQiLCAic3RkaW8iXX1QSwMEFAAAAAAAAAAhXNI8CMYKAAAACgAAACsAAABtY3AtbGVnaWZyYW5jZS9iaW4vbWNwLWxlZ2lmcmFuY2UtbGludXgteDY0QklOLVNJR05FRFBLAwQUAAAAAAAAACFc0jwIxgoAAAAKAAAALQAAAG1jcC1sZWdpZnJhbmNlL2Jpbi9tY3AtbGVnaWZyYW5jZS1saW51eC1hcm02NEJJTi1TSUdORURQSwMEFAAAAAAAAAAhXNI8CMYKAAAACgAAAC0AAABtY3AtbGVnaWZyYW5jZS9iaW4vbWNwLWxlZ2lmcmFuY2UtbWFjb3MtYXJtNjRCSU4tU0lHTkVEUEsDBBQAAAAAAAAAIVzSPAjGCgAAAAoAAAArAAAAbWNwLWxlZ2lmcmFuY2UvYmluL21jcC1sZWdpZnJhbmNlLW1hY29zLXg2NEJJTi1TSUdORURQSwMEFAAAAAAAAAAhXNI8CMYKAAAACgAAAC0AAABtY3AtbGVnaWZyYW5jZS9iaW4vbWNwLWxlZ2lmcmFuY2Utd2luZG93cy14NjRCSU4tU0lHTkVEUEsDBBQAAAAAAAAAIVzSPAjGCgAAAAoAAAAvAAAAbWNwLWxlZ2lmcmFuY2UvYmluL21jcC1sZWdpZnJhbmNlLXdpbmRvd3MtYXJtNjRCSU4tU0lHTkVEUEsBAhQDFAAAAAAAAAAhXGf3e+SWAQAAlgEAABwAAAAAAAAAAAAAAKQBAAAAAG1jcC1sZWdpZnJhbmNlL21hbmlmZXN0Lmpzb25QSwECFAMUAAAAAAAAACFc0jwIxgoAAAAKAAAAKwAAAAAAAAAAAAAA7QHQAQAAbWNwLWxlZ2lmcmFuY2UvYmluL21jcC1sZWdpZnJhbmNlLWxpbnV4LXg2NFBLAQIUAxQAAAAAAAAAIVzSPAjGCgAAAAoAAAAtAAAAAAAAAAAAAADtASMCAABtY3AtbGVnaWZyYW5jZS9iaW4vbWNwLWxlZ2lmcmFuY2UtbGludXgtYXJtNjRQSwECFAMUAAAAAAAAACFc0jwIxgoAAAAKAAAALQAAAAAAAAAAAAAA7QF4AgAAbWNwLWxlZ2lmcmFuY2UvYmluL21jcC1sZWdpZnJhbmNlLW1hY29zLWFybTY0UEsBAhQDFAAAAAAAAAAhXNI8CMYKAAAACgAAACsAAAAAAAAAAAAAAO0BzQIAAG1jcC1sZWdpZnJhbmNlL2Jpbi9tY3AtbGVnaWZyYW5jZS1tYWNvcy14NjRQSwECFAMUAAAAAAAAACFc0jwIxgoAAAAKAAAALQAAAAAAAAAAAAAA7QEgAwAAbWNwLWxlZ2lmcmFuY2UvYmluL21jcC1sZWdpZnJhbmNlLXdpbmRvd3MteDY0UEsBAhQDFAAAAAAAAAAhXNI8CMYKAAAACgAAAC8AAAAAAAAAAAAAAO0BdQMAAG1jcC1sZWdpZnJhbmNlL2Jpbi9tY3AtbGVnaWZyYW5jZS13aW5kb3dzLWFybTY0UEsFBgAAAAAHAAcAagIAAMwDAAAAAA==";
 
     /// Serveur factice dont `checksums.txt` est EXACTEMENT `checksums` (et non recalculé).
@@ -1371,28 +1470,62 @@ pub(crate) mod tests {
     #[test]
     fn minisign_vectors() {
         let data = SIGNED_CHECKSUMS.as_bytes();
-        assert!(verify_minisign(PUBKEY_A, data, SIG_OK, "v1.2.3").is_ok());
+        assert!(verify_minisign(PUBKEY_A, data, SIG_OK, "1.2.3").is_ok());
 
         // Contenu altéré d'un seul octet.
         let mut tampered = data.to_vec();
         tampered[0] = if tampered[0] == b'0' { b'1' } else { b'0' };
-        let e = verify_minisign(PUBKEY_A, &tampered, SIG_OK, "v1.2.3").unwrap_err();
+        let e = verify_minisign(PUBKEY_A, &tampered, SIG_OK, "1.2.3").unwrap_err();
         assert!(e.contains("INVALIDE"), "{e}");
 
         // Autre clé publique.
-        assert!(verify_minisign(PUBKEY_B, data, SIG_OK, "v1.2.3").is_err());
+        assert!(verify_minisign(PUBKEY_B, data, SIG_OK, "1.2.3").is_err());
         // Signature légitime d'une AUTRE release (rejeu) : valide cryptographiquement, refusée.
-        let e = verify_minisign(PUBKEY_A, data, SIG_OTHER_RELEASE, "v1.2.3").unwrap_err();
+        let e = verify_minisign(PUBKEY_A, data, SIG_OTHER_RELEASE, "1.2.3").unwrap_err();
         assert!(e.contains("ne désigne pas la release"), "{e}");
         // Format « legacy » (non pré-haché) refusé.
-        assert!(verify_minisign(PUBKEY_A, data, SIG_LEGACY, "v1.2.3").is_err());
+        assert!(verify_minisign(PUBKEY_A, data, SIG_LEGACY, "1.2.3").is_err());
         // Entrées invalides : erreurs claires, jamais de panique.
-        assert!(verify_minisign(PUBKEY_A, data, "n'importe quoi", "v1.2.3")
+        assert!(verify_minisign(PUBKEY_A, data, "n'importe quoi", "1.2.3")
             .unwrap_err()
             .contains("illisible"));
-        assert!(verify_minisign("pas une clé", data, SIG_OK, "v1.2.3")
+        assert!(verify_minisign("pas une clé", data, SIG_OK, "1.2.3")
             .unwrap_err()
             .contains("clé publique"));
+    }
+
+    // ── Compatibilité avec la signature de production (partagée avec Demeter) ──────────
+
+    /// `checksums.txt` et `checksums.txt.minisig` RÉELS de la release 0.3.3 du pack, signés avec
+    /// la clé de production par `sign-mcp-pack.sh` (Demeter). Prouve que Juridix accepte la
+    /// signature telle que Demeter la produit : une seule signature pour les deux applications.
+    const PROD_CHECKSUMS: &str = "026085ca212cc82f0b2f62e27b7af1c76ef5adc872b39873ffdba5a16aebd0fe  mcp-grist-0.3.3.zip\n797bf988c819f56ecafeb65bcf5998b1737522ed8ed1124a66c91e8b0640b91b  mcp-image-0.3.3.zip\n7038d59d4abb70591c86dc7570570fa86461e8f207511c5a79260086e09cb09a  mcp-judilibre-0.3.3.zip\n92b22cea97f7b633d506fa6faddce7958753c77b6c9af538f25b3739fca1583b  mcp-legifrance-0.3.3.zip\n8790dde27a8d566dfcdd157e1854adfd142f3c759ed8aa3c46d2e72269fd994a  mcp-pack-0.3.3.zip\n587a52fc71a412f2df14b6399b69bef562c5b44cd61067074760465baead7f0f  mcp-system-0.3.3.zip\n";
+    const PROD_SIG: &str = "untrusted comment: signature from minisign secret key\nRUQPw2uvrkzLBKNhxdtS+yaMWGYrnMF1vbO5/ZD97zI63iW2lLLHA72VpU3l41WfwbnHplLIB6IAxvn42Xe/eHihcVs1gNX25A0=\ntrusted comment: demeter-mcp-pack version:0.3.3\nCFWN3u56IgbXzVfDneu6g94n+h4ntAKjL2tfZHYQIDEa92x5RPmKP7Gr7Qu29ptyvxo+0ind9Zj02AVjOMW9Bg==\n";
+
+    #[test]
+    fn the_embedded_key_is_valid_and_verifies_the_demeter_signature_of_release_0_3_3() {
+        let key = configured_public_key().expect("mcp-pack.pub doit contenir une clé");
+        assert!(has_key_line(EMBEDDED_PUBLIC_KEY_FILE));
+        assert!(PublicKey::from_base64(&key).is_ok(), "clé publique invalide");
+        // Tag GitHub « v0.3.3 » → version « 0.3.3 » (commentaire signé : version:0.3.3).
+        let version = "v0.3.3".trim_start_matches('v');
+        verify_minisign(&key, PROD_CHECKSUMS.as_bytes(), PROD_SIG, version).unwrap();
+        // Rejeu sous une autre version, ou fichier modifié : refusés.
+        assert!(verify_minisign(&key, PROD_CHECKSUMS.as_bytes(), PROD_SIG, "0.3.4").is_err());
+        let tampered = PROD_CHECKSUMS.replacen('0', "1", 1);
+        assert!(verify_minisign(&key, tampered.as_bytes(), PROD_SIG, "0.3.3").is_err());
+    }
+
+    #[test]
+    fn public_key_file_parsing() {
+        assert_eq!(
+            parse_public_key_file("untrusted comment: x\nRWABC\n").as_deref(),
+            Some("RWABC")
+        );
+        assert_eq!(parse_public_key_file("# commentaire seul\n\n"), None);
+        assert!(has_key_line("untrusted comment: x\nRWABC\n"));
+        assert!(!has_key_line("untrusted comment: x\n# RWABC\n"));
+        assert!(!has_key_line(""));
     }
 
     #[test]

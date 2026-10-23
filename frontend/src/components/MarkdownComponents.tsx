@@ -35,6 +35,7 @@ class VisualErrorBoundary extends React.Component<{ label: string; children: Rea
 import type { Components } from 'react-markdown';
 import type { Element } from 'hast';
 import { mergeEChartsOption, cleanEChartsCode } from '../utils/text';
+import { parseEChartsOption } from '../utils/echartsOption';
 import { sanitizeMermaid } from '../utils/mermaid-sanitizer';
 import * as echarts from 'echarts';
 import mermaid from 'mermaid';
@@ -214,8 +215,8 @@ export const EChartsBlock = memo(function EChartsBlock({ code, streaming, compac
     let cleaned = '';
     try {
       cleaned = cleanEChartsCode(code);
-      // eslint-disable-next-line no-new-func
-      option = (new Function(`return (${cleaned})`))();
+      // Analyse JSON stricte : aucune exécution de code (audit E-02).
+      option = parseEChartsOption(code);
     } catch (e) {
       setError('JSON invalide : ' + (e as Error).message + '\n\n--- Source nettoyée ---\n' + cleaned);
       return;
