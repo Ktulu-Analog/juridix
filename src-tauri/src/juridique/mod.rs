@@ -15,9 +15,6 @@
 // + handlers Axum + état partagé.
 //
 
-
-
-
 pub mod client;
 pub mod judilibre;
 pub mod legifrance;
