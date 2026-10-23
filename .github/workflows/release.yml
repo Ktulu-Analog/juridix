@@ -69,10 +69,8 @@ jobs:
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Clé publique minisign des releases du pack MCP, compilée dans l'application
-          # (variable du dépôt : Settings → Secrets and variables → Actions → Variables).
-          # Vide = signature non exigée (mode de transition) — voir docs/MCP_PACK_SIGNATURE.md.
-          JURIDIX_MCP_PACK_PUBKEY: ${{ vars.JURIDIX_MCP_PACK_PUBKEY }}
+          # La clé publique minisign du pack MCP n'est plus injectée ici : elle est lue dans
+          # `src-tauri/mcp-pack.pub` (compilée dans l'application ; la build échoue si elle est absente).
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Juridix ${{ github.ref_name }}'

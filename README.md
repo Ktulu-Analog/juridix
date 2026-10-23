@@ -251,7 +251,7 @@ Si votre clé Qdrant est un **JWT** (commence par `eyJ`), vous pouvez également
 Le pré-filtre Winnow n'est **pas** piloté par une variable d'environnement : c'est une préférence
 utilisateur (Réglages ⚙ → Juridique). Les surcharges `JURIDIX_MCP_PACK_REPO` et
 `JURIDIX_MCP_PACK_VERSION` ne sont honorées qu'en **build de développement** ; la clé publique de
-signature du pack (`JURIDIX_MCP_PACK_PUBKEY`) est compilée dans l'application.
+signature du pack est celle du fichier `src-tauri/mcp-pack.pub`, compilée dans l'application.
 
 ### Espaces & Prompts
 
@@ -358,9 +358,10 @@ d'activer chaque serveur. Il affiche le nombre réel d'outils et laisse choisir 
 | **Tous** | 62 + 8 | ≈ 7 600 jetons par requête |
 | **Personnalisé** | liste au choix | annoncé avant de choisir |
 
-La signature des releases du pack (minisign) est implémentée mais **pas encore exigée** dans la 1.1.0
-(aucune clé publique compilée) : le pack reste vérifié par SHA-256, et tout retour à une version antérieure
-est refusé. Voir [docs/MCP_PACK_SIGNATURE.md](docs/MCP_PACK_SIGNATURE.md).
+La signature minisign de chaque release du pack (`checksums.txt.minisig`) est **obligatoire** : elle est
+vérifiée avec la clé publique `src-tauri/mcp-pack.pub` (la même que Demeter), puis le SHA-256 de chaque
+archive est contrôlé. Une signature absente ou invalide, ou une signature d'une autre release, fait refuser
+l'installation, et tout retour à une version antérieure est refusé.
 
 ### Autorisation des serveurs externes
 
