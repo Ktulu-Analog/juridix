@@ -182,11 +182,15 @@ export const SORTS_BY_FOND: Partial<Record<Fond, { value: string; label: string 
   // constat pour eux (contrairement à CODE ci-dessus).
 };
 
+// Judilibre ne couvre que l'ordre judiciaire : l'API n'accepte que cc, ca, tj, tcom et cph
+// (HTTP 400 sinon). Le Conseil d'État n'y figure pas : il se recherche dans Légifrance,
+// fond « Jurisprudence admin. (CE) » (CETAT).
 export const JURISDICTIONS_JUDILIBRE = [
-  { value: 'cc', label: 'Cour de cassation' },
-  { value: 'ca', label: 'Cours d\'appel' },
-  { value: 'tj', label: 'Tribunaux judiciaires' },
-  { value: 'ce', label: 'Conseil d\'État' },
+  { value: 'cc',   label: 'Cour de cassation' },
+  { value: 'ca',   label: 'Cours d\'appel' },
+  { value: 'tj',   label: 'Tribunaux judiciaires' },
+  { value: 'tcom', label: 'Tribunaux de commerce' },
+  { value: 'cph',  label: 'Conseils de prud\'hommes' },
 ];
 
 export const PUBLICATIONS_JUDILIBRE = [

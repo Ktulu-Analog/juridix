@@ -63,7 +63,8 @@ pub struct JudilibreSearchParams {
     /// Valeurs via GET /taxonomy?id=formation.
     pub formation: Option<Vec<String>>,
 
-    /// Juridiction : "cc" (Cour de cassation, défaut), "ca", "tj", "ce", etc.
+    /// Juridiction : "cc" (Cour de cassation, défaut), "ca", "tj", "tcom", "cph".
+    /// Judilibre ne couvre pas le Conseil d'État (« ce » → HTTP 400) : voir le fond CETAT de Légifrance.
     /// Valeurs via GET /taxonomy?id=jurisdiction.
     pub jurisdiction: Option<Vec<String>>,
 
