@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type React from 'react';
 import { API_BASE } from '../constants';
 import { notifyBlocked } from '../utils/mcpGrants';
+import { readLlmMaxTokens } from '../utils/llmSettings';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,8 @@ export interface ChatStreamRequestOptions {
   spaceId?: string | null;
   mcpServers?: string[];
   collectionId?: string | null;
+  /** Plafond de tokens de la réponse ; par défaut, celui des préférences (`llm_max_tokens`). */
+  maxTokens?: number;
 }
 
 export interface UseChatStreamResult {
@@ -188,6 +191,7 @@ export function useChatStream(
           space_id: opts.spaceId ?? null,
           mcp_servers: opts.mcpServers || [],
           ...(opts.collectionId ? { collection_id: opts.collectionId } : {}),
+          ...((opts.maxTokens ?? readLlmMaxTokens()) ? { max_tokens: opts.maxTokens ?? readLlmMaxTokens() } : {}),
         }),
       });
       if (!res.ok) { throw new Error(`Erreur ${res.status} : ${await res.text()}`); }

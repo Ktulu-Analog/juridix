@@ -262,11 +262,15 @@ function AppInner() {
   useEffect(() => { currentConvIdRef.current    = currentConvId;    }, [currentConvId]);
   useEffect(() => { currentConvTitleRef.current = currentConvTitle; }, [currentConvTitle]);
   useEffect(() => { settingsRef.current         = settings;         }, [settings]);
+  const activeModelRef = useRef('');
+  useEffect(() => { activeModelRef.current = activeModel; }, [activeModel]);
 
   const activeSpace = spaces.find(s => s.id === activeSpaceId) || spaces[0] || null;
   useEffect(() => { activeSpaceRef.current = activeSpace; }, [activeSpace]);
 
-  const configured    = !!(settings.endpoint && settings.bearer && settings.model);
+  // Le modèle n'est plus saisi dans les réglages : il se choisit dans la liste récupérée auprès de
+  // l'endpoint. `settings.model` n'est conservé que comme préférence héritée d'une version antérieure.
+  const configured    = !!(settings.endpoint && settings.bearer);
   const artifactsOpen = artifactsMsgIndex !== null;
   const quickPrompts  = (activeSpace as { prompts?: { label: string; icon: string; prompt: string }[] } | null)?.prompts || [];
 
@@ -498,11 +502,12 @@ function AppInner() {
         await saveConversation({ id: convId, title: fallbackTitle, space_id: space?.id || null, messages: serializedFast, created_at: now, updated_at: now });
 
         // 2. Améliorer avec le titre LLM en arrière-plan
-        if (cfg.endpoint && cfg.bearer && cfg.model) {
+        const titleModel = activeModelRef.current || cfg.model;
+        if (cfg.endpoint && cfg.bearer && titleModel) {
           try {
             const res = await fetch(`${API_BASE}/api-proxy/api/generate-title`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ first_user: firstUserStr.slice(0, 400), first_assistant: firstAssistStr.slice(0, 400), model: cfg.model }),
+              body: JSON.stringify({ first_user: firstUserStr.slice(0, 400), first_assistant: firstAssistStr.slice(0, 400), model: titleModel }),
             });
             if (res.ok) {
               const generated = (await res.json()).title?.trim() || '';
@@ -617,6 +622,10 @@ function AppInner() {
       toastFn("RAG inactif : configurez l'URL Qdrant dans les paramètres (obligatoire avec un token JWT).", 'error');
     }
     const baseModel     = activeModel || settings.model;
+    if (!baseModel) {
+      toastFn("Aucun modèle disponible : vérifiez l'endpoint et le token dans la configuration.", 'error');
+      return null;
+    }
     const lastUserText  = historyForApi.filter(m => m.role === 'user').pop()?.content || '';
     const lastUserStr   = typeof lastUserText === 'string' ? lastUserText : (lastUserText as Array<{ text?: string }>)[0]?.text || '';
     let modelForRequest = baseModel;
@@ -842,7 +851,11 @@ function AppInner() {
               </div>
             )}
           </div>
-        ) : (<span className="badge badge-green"><span className="badge-dot" />{activeModel || settings.model}</span>)
+        ) : (activeModel || settings.model) ? (
+          <span className="badge badge-green"><span className="badge-dot" />{activeModel || settings.model}</span>
+        ) : (
+          <span className="badge badge-red" onClick={() => setShowSettings(true)} style={{ cursor: 'pointer' }} title="La liste des modèles n'a pas pu être récupérée auprès de l'endpoint.">⚠ Aucun modèle disponible</span>
+        )
       ) : (<span className="badge badge-red" onClick={() => setShowSettings(true)} style={{ cursor: 'pointer' }}>⚠ Non configuré</span>)}
     </>
   );

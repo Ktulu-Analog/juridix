@@ -23,6 +23,41 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
   par `JSON.parse` (`frontend/src/utils/echartsOption.ts`), avec validation de l'arbre et retrait des
   balises HTML des chaînes.
 
+### Ajouté
+
+- **Longueur maximale des réponses** (Configuration → LLM) : menu simple (Automatique, Courte,
+  Standard, Longue, Très longue) qui plafonne les tokens de sortie du modèle. Utile avec une fenêtre de
+  contexte de 128K : le plafond automatique (`LLM_MAX_TOKENS`, 100 000 par défaut) peut faire refuser par
+  le serveur une longue analyse. Le choix est transmis à chaque requête de chat (`max_tokens`, borné entre
+  256 et 1 000 000 côté serveur) ; en mode automatique, `LLM_MAX_TOKENS` reste la valeur appliquée.
+
+### Modifié
+
+- **Synthèse de veille** : un texte trop long est désormais réduit en conservant son **début et sa fin**
+  (60 % / 40 %) et en omettant le milieu, au lieu de ne garder que le début : le dispositif d'une décision
+  et les dispositions d'entrée en vigueur d'un décret restent visibles. Les plafonds passent de 15 000 à
+  40 000 caractères par texte et de 90 000 à 240 000 au total (≈ 70 000 jetons, compatible 128K). Le prompt
+  demande au modèle de ne pas conclure à l'absence d'une information dans un texte tronqué et de signaler
+  qu'il est partiel ; le bandeau et la note finale indiquent que le milieu n'a pas été transmis.
+- **Modèle** : le champ « Modèle par défaut » est supprimé de la configuration. Il bloquait
+  l'enregistrement pour qui ne savait pas quoi y saisir ; seuls l'endpoint et le token sont requis, et le
+  modèle se choisit dans la liste récupérée auprès de l'endpoint (menu en haut de l'écran). Une valeur déjà
+  enregistrée par une version antérieure reste utilisée comme modèle préféré. Si l'endpoint ne renvoie aucune
+  liste de modèles, le badge « Aucun modèle disponible » l'indique et l'envoi d'un message est refusé avec
+  une explication.
+
+### Corrigé
+
+- **Recherche Judilibre** : la facette « Conseil d'État » (`ce`) provoquait une erreur HTTP 400 de PISTE
+  (Judilibre ne couvre que l'ordre judiciaire : `cc`, `ca`, `tj`, `tcom`, `cph`). Elle est retirée, et les
+  tribunaux de commerce et conseils de prud'hommes sont ajoutés. Les décisions du Conseil d'État se
+  recherchent dans Légifrance, fond « Jurisprudence admin. (CE) ».
+- **Version de l'application** : `tauri.conf.json` était resté en 1.1.4, les installeurs auraient été
+  numérotés 1.1.4. Le README (titre et badge) est aligné sur la 1.1.5.
+- **Pack MCP** : le refus d'un chemin absolu dans l'archive est explicite (zip 9 retire le `/` initial au
+  lieu de le rejeter). Les restes de la variable `JURIDIX_MCP_PACK_PUBKEY` (workflow de release,
+  `build.rs`, README) sont supprimés.
+
 ### Dépendances
 
 - **Frontend** : `echarts` 6.1, `katex` 0.19 (forcé pour `mermaid`, `rehype-katex` et `remark-math`

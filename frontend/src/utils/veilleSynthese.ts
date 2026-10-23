@@ -19,9 +19,7 @@
 //   3. (le panneau envoie ce prompt au chat, puis reçoit la synthèse) ;
 //   4. assemble la note finale en Markdown — en-tête, synthèse, liste des textes
 //      analysés — que `generateDocx` convertit en fichier Word.
-//
-// La liste des textes analysés est produite ICI, de façon déterministe, et non par le
-// modèle : elle reste exacte et vérifiable quoi que le LLM ait écrit.
+
 
 import { API_BASE } from '../constants';
 import { extractTextContent } from '../components/juridique/content';
@@ -31,9 +29,15 @@ import { openArgs, formatTexteDate, type VeilleResultat } from './veille';
 
 /** Nombre maximal de textes par synthèse. */
 export const MAX_TEXTES = 15;
-/** Plafonds de caractères transmis au modèle (≈ 4 caractères par jeton). */
-export const MAX_CHARS_PAR_TEXTE = 15_000;
-export const MAX_CHARS_TOTAL = 90_000;
+/**
+ * Plafonds de caractères transmis au modèle (≈ 3,5 caractères par jeton en français juridique).
+ * 240 000 caractères ≈ 70 000 jetons : tient dans une fenêtre de 128 K en laissant de la place
+ * au prompt et à la réponse. Une décision de justice dépasse souvent 15 000 caractères.
+ */
+export const MAX_CHARS_PAR_TEXTE = 40_000;
+export const MAX_CHARS_TOTAL = 240_000;
+/** Part du budget conservée au début du texte ; le reste va à la fin (dispositif, entrée en vigueur…). */
+const PART_DEBUT = 0.6;
 /** Chargements simultanés (les API PISTE sont limitées en débit). */
 const CONCURRENCE = 3;
 
@@ -48,15 +52,30 @@ export interface TexteCharge {
   erreur?: string;
 }
 
-/** Coupe `texte` à `max` caractères, de préférence en fin de paragraphe ou de phrase. */
+/**
+ * Réduit `texte` à `max` caractères environ en conservant le DÉBUT et la FIN, et en omettant le
+ * milieu : la fin porte souvent l'essentiel d'une veille (dispositif d'une décision, dispositions
+ * d'entrée en vigueur d'un décret). Les coupes tombent de préférence en fin de paragraphe ou de phrase.
+ */
 export function tronquer(texte: string, max: number): { texte: string; tronque: boolean } {
   if (texte.length <= max) return { texte, tronque: false };
-  const fenetre = texte.slice(0, max);
-  const coupe = Math.max(fenetre.lastIndexOf('\n\n'), fenetre.lastIndexOf('. '), fenetre.lastIndexOf('\n'));
-  const garde = coupe > max * 0.6 ? fenetre.slice(0, coupe + 1) : fenetre;
-  const omis = texte.length - garde.length;
+  const tailleDebut = Math.floor(max * PART_DEBUT);
+  const tailleFin = max - tailleDebut;
+
+  // Début : on recule jusqu'à une fin de paragraphe ou de phrase si elle n'est pas trop loin.
+  const debutBrut = texte.slice(0, tailleDebut);
+  const coupeDebut = Math.max(debutBrut.lastIndexOf('\n\n'), debutBrut.lastIndexOf('. '), debutBrut.lastIndexOf('\n'));
+  const debut = coupeDebut > tailleDebut * 0.7 ? debutBrut.slice(0, coupeDebut + 1) : debutBrut;
+
+  // Fin : on avance jusqu'au début du paragraphe ou de la phrase suivante si elle n'est pas trop loin.
+  const finBrute = texte.slice(texte.length - tailleFin);
+  const idx = [finBrute.indexOf('\n\n'), finBrute.indexOf('. '), finBrute.indexOf('\n')].filter((i) => i >= 0);
+  const coupeFin = idx.length ? Math.min(...idx) : -1;
+  const fin = coupeFin >= 0 && coupeFin < tailleFin * 0.3 ? finBrute.slice(coupeFin).replace(/^\.?\s+/, '') : finBrute;
+
+  const omis = texte.length - debut.length - fin.length;
   return {
-    texte: `${garde.trimEnd()}\n\n[… texte tronqué : ${omis.toLocaleString('fr-FR')} caractères non transmis]`,
+    texte: `${debut.trimEnd()}\n\n[… passage central tronqué : ${omis.toLocaleString('fr-FR')} caractères non transmis …]\n\n${fin.trimStart()}`,
     tronque: true,
   };
 }
@@ -201,7 +220,7 @@ export function assemblerNote(nomVeille: string, synthese: string, textes: Texte
     ...analyses.map(ligneReference),
   ];
   if (tronques.length > 0) {
-    out.push('', '**Textes tronqués** (seule la première partie a été transmise au modèle) :', '',
+    out.push('', '**Textes tronqués** (le début et la fin ont été transmis au modèle, pas le milieu) :', '',
       ...tronques.map((t) => `- ${t.resultat.titre}`));
   }
   if (echecs.length > 0) {

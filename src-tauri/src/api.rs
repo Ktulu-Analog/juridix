@@ -1088,7 +1088,7 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
                 "model":      req.model,
                 "messages":   loop_messages,
                 "stream":     false,
-                "max_tokens": config::llm_max_tokens(),
+                "max_tokens": config::resolve_max_tokens(req.max_tokens),
                 "tools":      mcp_tools,
                 "tool_choice": "auto",
             });
@@ -1289,7 +1289,7 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
         "model":      req.model,
         "messages":   messages_payload,
         "stream":     req.stream,
-        "max_tokens": config::llm_max_tokens(),
+        "max_tokens": config::resolve_max_tokens(req.max_tokens),
     });
 
     if req.stream {

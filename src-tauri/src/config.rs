@@ -119,6 +119,19 @@ pub fn llm_max_tokens() -> u64 {
     env_u64("LLM_MAX_TOKENS", 100_000)
 }
 
+/// Bornes acceptées pour le plafond choisi par l'utilisateur dans les préférences.
+const USER_MAX_TOKENS_MIN: u64 = 256;
+const USER_MAX_TOKENS_MAX: u64 = 1_000_000;
+
+/// Plafond de tokens effectif d'une requête : la valeur demandée par l'utilisateur (préférences)
+/// si elle est raisonnable, sinon la valeur du serveur (`LLM_MAX_TOKENS`, défaut 100000).
+pub fn resolve_max_tokens(requested: Option<u64>) -> u64 {
+    match requested {
+        Some(n) if (USER_MAX_TOKENS_MIN..=USER_MAX_TOKENS_MAX).contains(&n) => n,
+        _ => llm_max_tokens(),
+    }
+}
+
 /// Nombre maximum de tokens pour la génération de titre (défaut : 20).
 pub fn title_max_tokens() -> u64 {
     env_u64("TITLE_MAX_TOKENS", 20)
@@ -268,4 +281,25 @@ pub fn winnow_min_passage_chars() -> usize {
 /// Part minimale des passages d'un document qui doit survivre au filtre (défaut : 0.2).
 pub fn winnow_min_keep_ratio() -> f64 {
     env_f64("WINNOW_MIN_KEEP_RATIO", 0.2)
+}
+
+#[cfg(test)]
+mod max_tokens_tests {
+    use super::*;
+
+    #[test]
+    fn a_reasonable_user_value_wins_over_the_server_default() {
+        assert_eq!(resolve_max_tokens(Some(16_000)), 16_000);
+        assert_eq!(resolve_max_tokens(Some(256)), 256);
+        assert_eq!(resolve_max_tokens(Some(1_000_000)), 1_000_000);
+    }
+
+    #[test]
+    fn absent_or_absurd_values_fall_back_to_the_server_default() {
+        let defaut = llm_max_tokens();
+        assert_eq!(resolve_max_tokens(None), defaut);
+        assert_eq!(resolve_max_tokens(Some(0)), defaut);
+        assert_eq!(resolve_max_tokens(Some(255)), defaut);
+        assert_eq!(resolve_max_tokens(Some(1_000_001)), defaut);
+    }
 }

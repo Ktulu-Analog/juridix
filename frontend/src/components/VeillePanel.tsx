@@ -14,6 +14,7 @@
 // Veille juridique : liste des veilles, résultats détectés, création/modification.
 // Le backend (veille.rs) rejoue les recherches en tâche de fond ; ce panneau
 // affiche ce qu'il a trouvé de nouveau et permet d'ouvrir chaque texte.
+
 import React, { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -305,7 +306,7 @@ export function VeillePanel({ onClose, onOpenResult, onChanged, onSynthese, winn
               <div className="veille-warn">{synth.nbEchecs} texte{synth.nbEchecs > 1 ? 's' : ''} n'a / n'ont pas pu être chargé{synth.nbEchecs > 1 ? 's' : ''} (listé{synth.nbEchecs > 1 ? 's' : ''} en fin de note).</div>
             )}
             {synth.nbTronques > 0 && (
-              <div className="veille-warn">{synth.nbTronques} texte{synth.nbTronques > 1 ? 's' : ''} tronqué{synth.nbTronques > 1 ? 's' : ''} : seule la première partie a été transmise au modèle.</div>
+              <div className="veille-warn">{synth.nbTronques} texte{synth.nbTronques > 1 ? 's' : ''} tronqué{synth.nbTronques > 1 ? 's' : ''} : le début et la fin ont été transmis au modèle, pas le milieu.</div>
             )}
             <div className="veille-synth__preview bubble-markdown">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={ARTIFACT_MD_COMPONENTS}>

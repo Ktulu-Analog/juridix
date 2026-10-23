@@ -40,6 +40,9 @@ pub struct ChatRequest {
     pub collection_id: Option<String>, // nom de collection Qdrant (anciennement i64 Albert)
     #[serde(default)]
     pub mcp_servers: Vec<String>,
+    /// Plafond de tokens de la réponse choisi dans les préférences (absent = valeur du serveur).
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

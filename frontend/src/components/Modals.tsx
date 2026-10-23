@@ -18,6 +18,7 @@ import { OfficialMcpPanel } from './OfficialMcpPanel';
 import { DataPrivacyModal } from './DataPrivacyModal';
 import { McpAuthDialog } from './McpAuthDialog';
 import { listGrants, needsGrant } from '../utils/mcpGrants';
+import { LONGUEURS_REPONSE } from '../utils/llmSettings';
 
 // Applique immédiatement les préférences de police sur :root pour preview live
 function applyFontPrefs(fontFamily?: string, fontSize?: number) {
@@ -53,6 +54,8 @@ export interface Settings {
    *  serveur, modèle, seuils), qui restent en .env car ce sont des détails
    *  d'installation locale, celui-ci est une préférence d'usage. */
   winnow_enabled?: boolean;
+  /** Plafond de tokens de la réponse du modèle (absent ou 0 = automatique, valeur du serveur). */
+  llm_max_tokens?: number;
 }
 
 interface McpTool {
@@ -138,7 +141,7 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const update = (k: keyof Settings) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const canSave = !!(form.endpoint && form.bearer && form.model);
+  const canSave = !!(form.endpoint && form.bearer);
 
   // Un serveur MCP HTTP « distant » (hors localhost) reçoit le contenu des requêtes
   // que le modèle lui adresse (extraits de vos questions et de vos dossiers) et peut
@@ -198,8 +201,25 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               <input className="field-input" type="password" value={form.bearer} onChange={update('bearer')} placeholder="sk-…" />
             </div>
             <div className="field-group">
-              <label className="field-label">Modèle par défaut</label>
-              <input className="field-input" value={form.model} onChange={update('model')} placeholder="openai/gpt-oss-120b" />
+              <label className="field-label">Longueur maximale des réponses</label>
+              <select
+                className="field-input"
+                value={form.llm_max_tokens || 0}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setForm(f => ({ ...f, llm_max_tokens: n > 0 ? n : undefined }));
+                }}
+              >
+                {LONGUEURS_REPONSE.map(o => <option key={o.valeur} value={o.valeur}>{o.label}</option>)}
+              </select>
+              <div className="field-hint" style={{ marginTop: 4 }}>
+                <span className="hint-icon">📏</span>
+                <span>
+                  Limite la taille de ce que le modèle peut écrire. Si votre modèle a une fenêtre de contexte
+                  de 128K, choisissez « Longue » ou moins : en mode automatique, une longue analyse peut être
+                  refusée par le serveur. Le modèle utilisé se choisit en haut de l'écran.
+                </span>
+              </div>
             </div>
             <div className="field-group mcp-web-field-group">
               <label className="field-label">
