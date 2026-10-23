@@ -444,7 +444,11 @@ pub fn verify_minisign(
     pk.verify(data, &sig, false)
         .map_err(|e| format!("signature INVALIDE : {e}"))?;
     let expected = format!("version:{version}");
-    if !sig.trusted_comment().split_whitespace().any(|w| w == expected) {
+    if !sig
+        .trusted_comment()
+        .split_whitespace()
+        .any(|w| w == expected)
+    {
         return Err(format!(
             "la signature ne désigne pas la release {version} (commentaire signé : « {} », attendu « {expected} ») — rejeu d'une autre release ?",
             sig.trusted_comment()
@@ -694,7 +698,9 @@ fn installed_bin_path(server_dir: &Path, id: &str) -> Result<PathBuf, String> {
         .get(&platform_key())
         .ok_or_else(|| format!("aucun binaire pour {} dans le manifest", platform_key()))?;
     if !is_safe_relative(rel) {
-        return Err(format!("chemin de binaire non autorisé dans le manifest : {rel}"));
+        return Err(format!(
+            "chemin de binaire non autorisé dans le manifest : {rel}"
+        ));
     }
     Ok(server_dir.join(rel))
 }
@@ -1506,7 +1512,10 @@ pub(crate) mod tests {
     fn the_embedded_key_is_valid_and_verifies_the_demeter_signature_of_release_0_3_3() {
         let key = configured_public_key().expect("mcp-pack.pub doit contenir une clé");
         assert!(has_key_line(EMBEDDED_PUBLIC_KEY_FILE));
-        assert!(PublicKey::from_base64(&key).is_ok(), "clé publique invalide");
+        assert!(
+            PublicKey::from_base64(&key).is_ok(),
+            "clé publique invalide"
+        );
         // Tag GitHub « v0.3.3 » → version « 0.3.3 » (commentaire signé : version:0.3.3).
         let version = "v0.3.3".trim_start_matches('v');
         verify_minisign(&key, PROD_CHECKSUMS.as_bytes(), PROD_SIG, version).unwrap();
