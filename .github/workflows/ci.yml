@@ -96,9 +96,6 @@ jobs:
   audit:
     name: Audit des dépendances (cargo audit + npm audit)
     runs-on: ubuntu-latest
-    # Informatif pour l'instant (des alertes npm « high » sont à traiter) :
-    # retirer `continue-on-error` une fois `npm audit fix` appliqué.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
