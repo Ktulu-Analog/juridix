@@ -14,7 +14,7 @@
 // ============================================================================
 // Juridix — Module Juridique — verify_ext.rs
 // ============================================================================
-// Extension de la vérification des citations
+// Extension de la vérification des citations.
 //
 // `verify.rs` vérifie les articles de CODES. Ce module ajoute, avec les mêmes
 // principes (jamais de verdict négatif sans recherche aboutie, jamais d'erreur
@@ -34,9 +34,10 @@
 //          uniquement positif : un passage absent des documents peut venir d'un
 //          résultat d'outil ou d'un extrait RAG dont on n'a pas le texte).
 //
-// Une décision « non retrouvée » n'est pas une décision inexistante : Judilibre
+// Une décision « non retrouvée » n'est PAS une décision inexistante : Judilibre
 // n'est pas exhaustif. Le statut `NonRetrouvee` est volontairement distinct de
 // `Introuvable` (articles de codes) et rendu par un ❓, pas par un ❌.
+//
 // ============================================================================
 
 use std::collections::HashMap;
@@ -164,7 +165,7 @@ fn fr_date(iso: &str) -> String {
 pub(crate) fn canon_chamber(s: &str) -> Option<&'static str> {
     let f = fold(s).replace(['-', '_', '.', ','], " ");
     let tokens: Vec<&str> = f.split_whitespace().collect();
-    let has_tok = |t: &str| tokens.iter().any(|x| *x == t);
+    let has_tok = |t: &str| tokens.contains(&t);
     let starts = |p: &str| tokens.iter().any(|x| x.starts_with(p));
     if starts("plen") || has_tok("pl") {
         return Some("pl");
@@ -419,8 +420,9 @@ fn extract_straight_quotes(text: &str, masked: &str) -> Vec<QuoteRef> {
                 let (a, b) = (pair[0], pair[1]);
                 let before = masked[..a].chars().last();
                 let after = masked[b + 1..].chars().next();
-                let open_ok = before.is_none_or(|c| !c.is_alphanumeric());
-                let close_ok = after.is_none_or(|c| !c.is_alphanumeric());
+                // `map_or` plutôt qu'`is_none_or` (1.82) : le MSRV du projet est 1.77.
+                let open_ok = before.map_or(true, |c| !c.is_alphanumeric());
+                let close_ok = after.map_or(true, |c| !c.is_alphanumeric());
                 let inner = &masked[a + 1..b];
                 if !open_ok
                     || !close_ok
@@ -463,9 +465,7 @@ fn extract_blockquotes(text: &str, masked: &str) -> Vec<QuoteRef> {
         let is_quote =
             trimmed.starts_with('>') && masked.get(offset..offset + content.len()) == Some(content);
         if is_quote {
-            let inner = trimmed
-                .trim_start_matches(|c: char| c == '>' || c == ' ')
-                .to_string();
+            let inner = trimmed.trim_start_matches(['>', ' ']).to_string();
             let end = offset + content.len();
             match cur.as_mut() {
                 Some(b) => {

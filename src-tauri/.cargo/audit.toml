@@ -2,6 +2,12 @@
 ignore = [
   # Marvin attack : pas de correctif amont. Juridix n'utilise que du HMAC pour les JWT.
   "RUSTSEC-2023-0071",
+  # crypto-bigint 0.5.5 : variations de temps dans des opérations « à temps constant » (clés
+  # privées). Il n'arrive que par jsonwebtoken (feature rust_crypto → p256 / p384, ECDSA), dont
+  # le code n'est jamais appelé : Juridix signe ses JWT uniquement en HS256 (HMAC, rag.rs) et
+  # n'en décode aucun. Le correctif exige crypto-bigint >= 0.7.6, que les courbes 0.13 n'acceptent
+  # pas. À retirer dès que jsonwebtoken adopte des courbes basées sur crypto-bigint >= 0.7.6.
+  "RUSTSEC-2026-0387",
   # À retirer dès que pdf-extract / plist publient une version avec lopdf >= 0.42 / quick-xml >= 0.41
   # "RUSTSEC-2026-0187",
   # "RUSTSEC-2026-0194",
