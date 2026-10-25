@@ -13,7 +13,12 @@ import { useEffect, useState } from 'react';
 import { API_BASE } from '../constants';
 
 export type CitationStatut =
-  | 'en_vigueur' | 'abroge' | 'introuvable' | 'non_verifiable' | 'erreur';
+  | 'en_vigueur' | 'abroge' | 'introuvable' | 'non_verifiable' | 'erreur'
+  // Décisions, conventions collectives et citations textuelles :
+  | 'verifiee'      // existe / passage retrouvé tel quel
+  | 'incoherente'   // la source existe mais ce qui est cité ne concorde pas
+  | 'approchante'   // citation proche de la source sans lui être identique
+  | 'non_retrouvee';// recherche aboutie sans correspondance (≠ inexistant : à vérifier)
 
 export interface CitationOccurrence {
   /** Offsets en unités UTF-16 (= String.prototype.slice). */
@@ -22,8 +27,14 @@ export interface CitationOccurrence {
   texte: string;
 }
 
-/** article = article de code (existence vérifiée) ; texte = loi/décret/… (ancrage seul). */
-export type CitationKind = 'article' | 'texte';
+/**
+ * article    = article de code ;
+ * texte      = loi / ordonnance / décret (existence vérifiée si cité par son numéro), autres textes (ancrage seul) ;
+ * decision   = décision de la Cour de cassation citée par son numéro de pourvoi (Judilibre) ;
+ * convention = convention collective citée par son IDCC ;
+ * citation   = passage entre guillemets comparé à l'article ou aux documents fournis.
+ */
+export type CitationKind = 'article' | 'texte' | 'decision' | 'convention' | 'citation';
 
 /** Présence dans ce qui a été fourni au modèle (documents, outils MCP, extraits RAG). */
 export type CitationAncrage = 'dans_sources' | 'hors_sources';
@@ -43,6 +54,8 @@ export interface CitationVerification {
   url: string | null;
   existe_dans: string[];
   detail: string | null;
+  /** Identité de la source retrouvée (titre, chambre, date, solution…). */
+  infos?: string[];
   occurrences: CitationOccurrence[];
 }
 
@@ -64,6 +77,8 @@ export interface CitationGrounding {
 
 /** Évalué paresseusement, au moment de lancer la vérification (pas à chaque rendu). */
 export type GroundingGetter = () => CitationGrounding | null;
+/** Question à laquelle répond un message (conversation libre, sans documents fournis). */
+export type QuestionGetter = () => string | null;
 
 /** Préfixe des ancres produites par `annotateCitations` (lues par le rendu). */
 export const CITE_HREF_PREFIX = '#juridix-cite-';
@@ -74,6 +89,8 @@ const QUICK_RE = new RegExp(
   [
     String.raw`\b(?:articles?|arts?)\b\.?\s*\d`,                 // article 1103
     String.raw`\b[LRDA]\s?\.?\s?\d{2,}`,                         // L. 1234-5
+    String.raw`\bpourvoi\b|\bcass(?:ation)?\b|\bIDCC\b`,        // décisions, conventions collectives
+    String.raw`[«“][^»”]{25,}[»”]|"[^"\n]{25,}"`,                // citations textuelles (« », “ ”, " ")
     // loi / décret / arrêté… suivi (de près) d'un numéro ou d'une date
     String.raw`\b(?:loi|ordonnance|d[ée]cret|arr[êe]t[ée]|circulaire|instruction|d[ée]cision)(?![a-zà-ÿ])[^\n]{0,40}\d`,  // \b ne voit pas le é final (ASCII seulement)
   ].join('|'),
@@ -90,6 +107,10 @@ export function citationBadge(v: CitationVerification): { icon: string; label: s
     case 'en_vigueur':   return { icon: '✅', label: 'en vigueur' };
     case 'abroge':       return { icon: '⚠️', label: v.etat_libelle || 'plus en vigueur' };
     case 'introuvable':  return { icon: '❌', label: 'introuvable' };
+    case 'verifiee':     return { icon: '✅', label: v.kind === 'citation' ? 'passage retrouvé' : 'vérifiée' };
+    case 'incoherente':  return { icon: '⚠️', label: 'incohérente' };
+    case 'approchante':  return { icon: '⚠️', label: 'passage proche' };
+    case 'non_retrouvee':return { icon: '❓', label: 'non retrouvée' };
     default:             return { icon: '', label: '' };
   }
 }
@@ -123,12 +144,31 @@ export function citationTitle(v: CitationVerification): string {
       main = `${ref} — aucun article de ce numéro trouvé dans ce code : référence peut-être inventée.${ailleurs}`;
       break;
     }
+    case 'verifiee':
+      main = `${ref} — ${v.detail || verifieeLead(v)}`;
+      break;
+    case 'incoherente':
+    case 'approchante':
+    case 'non_retrouvee':
+      main = `${ref} — ${v.detail || 'à vérifier'}`;
+      break;
     default:
       main = `${ref} — ${v.detail || 'non vérifié'}`;
   }
+  if (v.infos?.length) main += `\n${v.infos.join('\n')}`;
+  if (v.url && v.kind !== 'citation') main += '\nCliquer pour ouvrir la source.';
   if (v.ancrage === 'hors_sources') return `${main}\n${ANCRAGE_HORS}`;
   if (v.ancrage === 'dans_sources') return `${main}\n${ANCRAGE_DANS}`;
   return main;
+}
+
+function verifieeLead(v: CitationVerification): string {
+  switch (v.kind) {
+    case 'decision':   return 'décision retrouvée dans Judilibre.';
+    case 'convention': return 'convention collective retrouvée (Légifrance).';
+    case 'citation':   return 'passage retrouvé tel quel.';
+    default:           return 'référence retrouvée.';
+  }
 }
 
 function formatDate(iso: string): string {
@@ -181,8 +221,8 @@ function groundingSignature(g: CitationGrounding | null): string {
   return `${g.sources.length}:${total}:${g.keys.length}:${g.keys.join('|').length}`;
 }
 
-function cacheKey(text: string, g: CitationGrounding | null): string {
-  return `${groundingSignature(g)}\u0000${text}`;
+function cacheKey(text: string, g: CitationGrounding | null, question: string | null = null): string {
+  return `${groundingSignature(g)}\u0000${question ?? ''}\u0000${text}`;
 }
 
 /** `null` = pas de rapport exploitable (aucune annotation, aucune erreur visible). */
@@ -190,8 +230,9 @@ export function verifyCitations(
   text: string,
   grounding: CitationGrounding | null = null,
   signal?: AbortSignal,
+  question: string | null = null,
 ): Promise<CitationReport | null> {
-  const key = cacheKey(text, grounding);
+  const key = cacheKey(text, grounding, question);
   if (reportCache.has(key)) return Promise.resolve(reportCache.get(key)!);
   const pending = inflight.get(key);
   if (pending) return pending;
@@ -201,11 +242,13 @@ export function verifyCitations(
       const res = await fetch(`${API_BASE}/api/juridique/verifier-citations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          grounding
+        body: JSON.stringify({
+          ...(grounding
             ? { texte: text, ancrage: true, sources: grounding.sources, cles_sources: grounding.keys }
-            : { texte: text },
-        ),
+            : { texte: text }),
+          // La question sert à retrouver l'article désigné quand la réponse n'en cite aucun.
+          ...(question ? { contexte: question } : {}),
+        }),
         signal,
       });
       if (!res.ok) return null; // 503 (PISTE non configuré), 413, 5xx… : silencieux
@@ -236,19 +279,21 @@ export function useCitationReport(
   text: string,
   active: boolean,
   getGrounding?: GroundingGetter,
+  getQuestion?: QuestionGetter,
 ): CitationReport | null {
   const [report, setReport] = useState<CitationReport | null>(null);
 
   useEffect(() => {
     if (!active || !text || !mightContainCitation(text)) { setReport(null); return; }
     const grounding = getGrounding ? getGrounding() : null;
-    const cached = reportCache.get(cacheKey(text, grounding));
+    const question = getQuestion ? getQuestion() : null;
+    const cached = reportCache.get(cacheKey(text, grounding, question));
     if (cached !== undefined) { setReport(cached); return; }
     const ctrl = new AbortController();
     let alive = true;
-    verifyCitations(text, grounding, ctrl.signal).then(r => { if (alive) setReport(r); });
+    verifyCitations(text, grounding, ctrl.signal, question).then(r => { if (alive) setReport(r); });
     return () => { alive = false; ctrl.abort(); };
-  }, [text, active, getGrounding]);
+  }, [text, active, getGrounding, getQuestion]);
 
   return report;
 }

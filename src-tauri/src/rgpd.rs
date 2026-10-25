@@ -11,7 +11,7 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-//! Export et effacement des données de l'utilisateur (RGPD) — chantier 3.
+//! Export et effacement des données de l'utilisateur (RGPD).
 //!
 //! ## Périmètre de « tout »
 //! - la base SQLite chiffrée (`conversations.db` et ses fichiers annexes) ;
@@ -37,10 +37,7 @@
 //!    la base**, `run_pending_wipe` écrase puis supprime les fichiers restants
 //!    et le marqueur. Si l'application est interrompue entre-temps, le marqueur
 //!    garantit que l'effacement sera terminé au lancement suivant.
-//!
-//! Limite : l'écrasement avant suppression est « au mieux ». Il n'offre aucune
-//! garantie sur un SSD (nivellement d'usure) ni sur un système de fichiers à
-//! copie sur écriture ; seul le chiffrement du disque entier les apporte.
+
 
 use std::fs::File;
 use std::io::{Seek, Write};

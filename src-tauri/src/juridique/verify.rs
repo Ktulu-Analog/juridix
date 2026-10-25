@@ -11,47 +11,10 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
+// ============================================================================
+// Juridix — Module Juridique — verify.rs
+// ============================================================================
 // Vérification des références d'articles de code citées par le LLM
-// (chantier 4 de la feuille de route).
-//
-// Le LLM peut halluciner une référence plausible mais inexistante, ou citer un
-// article abrogé comme s'il était en vigueur. Ce module :
-//
-//   1. extrait d'un texte les références d'articles de code
-//      (`extract_article_refs`) — « article L. 1234-5 du Code du travail »,
-//      « art. 1103 C. civ. », « Code civil, articles 1103 et 1104 »… — en
-//      ignorant les blocs de code et les liens Markdown ;
-//   2. résout pour chacune le code visé (par le contexte immédiat : suffixe
-//      « du Code civil », préfixe « Code civil, art. », liste partageant un
-//      même code) ;
-//   3. interroge Légifrance (`ArticleLookup`), en parallèle borné, avec cache
-//      par (code, numéro, jour) ;
-//   4. renvoie un rapport (`Report`) : statut par référence + positions des
-//      occurrences dans le texte, que le frontend utilise pour poser les badges.
-//
-// Principe directeur : **ne jamais conclure « introuvable » sans preuve**. Une
-// référence dont le code n'est pas identifié est « non vérifiable » (pas de
-// verdict) ; une erreur réseau/API est « erreur » (pas de verdict) ; seule une
-// recherche aboutie sans aucun résultat produit « introuvable ».
-//
-// Portée v1 : articles de CODES (fonds CODE_* de Légifrance). Les articles de
-// lois/décrets, de la Constitution, de conventions ou de règlements européens
-// sont volontairement ignorés (aucun badge) plutôt que mal vérifiés.
-//
-// ── Ancrage (v2) ─────────────────────────────────────────────────────────────
-// Dans Juridix, le LLM ne consulte pas Légifrance de lui-même : il travaille sur
-// ce qu'on lui fournit (documents du dossier, pièces jointes, résultats d'outils
-// MCP, extraits RAG). Tout ce qu'il cite en dehors vient de sa mémoire — c'est
-// là que se logent les « bases légales implicites » inventées ou périmées.
-// Indépendamment de l'existence, chaque référence est donc marquée
-//   - `dans_sources` : retrouvée dans ce qui a été fourni au modèle ;
-//   - `hors_sources` : absente de ce qui lui a été fourni (→ à vérifier).
-// L'ancrage n'est calculé que si l'appelant le demande (conversation avec
-// documents) et fournit les sources : sans contexte fourni, « hors sources »
-// n'aurait aucun sens. Il couvre aussi les textes hors codes (loi, décret,
-// ordonnance, arrêté… identifiés par n° ou par date), dont l'EXISTENCE n'est pas
-// vérifiée (pas de recherche fiable par numéro) : seul l'ancrage est signalé.
-//
 // ============================================================================
 
 use std::collections::HashMap;
@@ -79,7 +42,7 @@ pub const LOOKUP_CONCURRENCY: usize = 4;
 /// Taille maximale du texte analysé.
 pub const MAX_TEXT_BYTES: usize = 400_000;
 /// Nombre maximal d'occurrences renvoyées (garde-fou sur la taille de réponse).
-const MAX_OCCURRENCES: usize = 300;
+pub(crate) const MAX_OCCURRENCES: usize = 300;
 /// Durée de vie du cache de vérification. La clé contient la date du jour ;
 /// ce TTL n'est qu'un plafond.
 const TTL_VERIFICATION: Duration = Duration::from_secs(12 * 3600);
@@ -359,7 +322,7 @@ static RE_NON_CODE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Minuscules, sans accents, apostrophes et espaces normalisés.
-fn fold(s: &str) -> String {
+pub(crate) fn fold(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -384,7 +347,7 @@ fn fold(s: &str) -> String {
 /// Remplace par des espaces (même longueur en octets → les positions restent
 /// valides dans le texte d'origine) les zones où une référence ne doit pas être
 /// annotée : blocs de code, code en ligne, liens/images Markdown, URL.
-fn mask_non_prose(text: &str) -> String {
+pub(crate) fn mask_non_prose(text: &str) -> String {
     static RE_LINK: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"!?\[[^\]\n]*\]\([^)\n]*\)").expect("regex lien"));
     static RE_URL: Lazy<Regex> =
@@ -883,7 +846,7 @@ impl TextRef {
     }
 }
 
-fn month_number(folded: &str) -> Option<u32> {
+pub(crate) fn month_number(folded: &str) -> Option<u32> {
     Some(match folded {
         "janvier" => 1,
         "fevrier" => 2,
@@ -999,7 +962,12 @@ impl GroundingIndex {
     /// Ajoute des clés déjà calculées (`grounding_keys`) ; les clés mal formées sont ignorées.
     pub fn extend_keys<I: IntoIterator<Item = String>>(&mut self, keys: I) {
         for k in keys.into_iter().take(MAX_EXTERNAL_KEYS) {
-            if k.len() <= MAX_KEY_LEN && (k.starts_with("art|") || k.starts_with("txt|")) {
+            if k.len() <= MAX_KEY_LEN
+                && (k.starts_with("art|")
+                    || k.starts_with("txt|")
+                    || k.starts_with("dec|")
+                    || k.starts_with("idcc|"))
+            {
                 self.keys.insert(k);
             }
         }
@@ -1020,6 +988,16 @@ impl GroundingIndex {
     fn has_texte(&self, r: &TextRef) -> bool {
         r.keys().iter().any(|k| self.keys.contains(k))
     }
+
+    /// Décision de la Cour de cassation (clé = chiffres du numéro de pourvoi).
+    pub(crate) fn has_decision(&self, key: &str) -> bool {
+        self.keys.contains(&format!("dec|{key}"))
+    }
+
+    /// Convention collective (IDCC sur 4 chiffres).
+    pub(crate) fn has_idcc(&self, idcc: &str) -> bool {
+        self.keys.contains(&format!("idcc|{idcc}"))
+    }
 }
 
 /// Clés d'ancrage de tout ce qu'un texte cite (articles de codes, textes hors codes).
@@ -1031,6 +1009,12 @@ pub fn grounding_keys(text: &str) -> Vec<String> {
     }
     for t in extract_text_refs(text) {
         keys.extend(t.keys());
+    }
+    for d in super::verify_ext::extract_decision_refs(text) {
+        keys.push(format!("dec|{}", d.key));
+    }
+    for i in super::verify_ext::extract_idcc_refs(text) {
+        keys.push(format!("idcc|{}", i.idcc));
     }
     keys.sort();
     keys.dedup();
@@ -1089,6 +1073,17 @@ pub enum Statut {
     NonVerifiable,
     /// Pas de verdict : Légifrance n'a pas répondu correctement.
     Erreur,
+    /// ✅ La référence existe (décision, convention collective) ou la citation
+    /// textuelle est retrouvée telle quelle dans la source.
+    Verifiee,
+    /// ⚠️ La source existe mais ce qui est cité ne concorde pas (date ou chambre
+    /// d'une décision, date d'un texte, passage cité absent de l'article).
+    Incoherente,
+    /// ⚠️ Citation textuelle proche de la source sans lui être identique.
+    Approchante,
+    /// ❓ Recherche aboutie sans correspondance. Ce n'est pas une preuve
+    /// d'inexistence (Judilibre n'est pas exhaustif) : à vérifier à la main.
+    NonRetrouvee,
 }
 
 /// Position d'une occurrence dans le texte analysé. Offsets en unités UTF-16
@@ -1107,8 +1102,15 @@ pub struct Occurrence {
 pub enum Kind {
     /// Article de code : existence et état vérifiés sur Légifrance.
     Article,
-    /// Texte hors code (loi, décret…) : seul l'ancrage est évalué.
+    /// Texte hors code (loi, ordonnance, décret) : existence et état vérifiés
+    /// quand il est cité par son numéro ; sinon seul l'ancrage est évalué.
     Texte,
+    /// Décision de la Cour de cassation citée par son numéro de pourvoi (Judilibre).
+    Decision,
+    /// Convention collective citée par son IDCC (Légifrance, fonds KALI).
+    Convention,
+    /// Passage cité entre guillemets, comparé au texte de l'article ou aux sources.
+    Citation,
 }
 
 /// Présence de la référence dans ce qui a été fourni au modèle.
@@ -1143,7 +1145,24 @@ pub struct Verification {
     pub existe_dans: Vec<String>,
     /// Explication courte pour les statuts sans verdict.
     pub detail: Option<String>,
+    /// Éléments d'identité de la source retrouvée (titre, chambre, date, solution…),
+    /// affichés dans l'info-bulle.
+    pub infos: Vec<String>,
     pub occurrences: Vec<Occurrence>,
+    /// Données de travail, jamais sérialisées (voir `verify_ext`).
+    #[serde(skip)]
+    pub intern: Intern,
+}
+
+/// Données de travail d'une vérification, non exposées au client.
+#[derive(Debug, Clone, Default)]
+pub struct Intern {
+    /// `code|numéro` d'un article de code identifié.
+    pub article_key: Option<String>,
+    /// Identifiant LEGIARTI de la version retenue.
+    pub article_id: Option<String>,
+    /// Texte hors code cité par numéro : (nature, numéro, date « AAAA-MM-JJ »).
+    pub texte: Option<(String, String, Option<String>)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1178,7 +1197,7 @@ pub fn article_url(id: &str) -> Option<String> {
         .then(|| format!("https://www.legifrance.gouv.fr/codes/article_lc/{id}"))
 }
 
-fn utf16_offset(text: &str, byte_idx: usize) -> usize {
+pub(crate) fn utf16_offset(text: &str, byte_idx: usize) -> usize {
     text[..byte_idx].encode_utf16().count()
 }
 
@@ -1201,7 +1220,12 @@ fn base_verification(code: Option<&str>, r: &ArticleRef) -> Verification {
         url: None,
         existe_dans: Vec::new(),
         detail: None,
+        infos: Vec::new(),
         occurrences: Vec::new(),
+        intern: Intern {
+            article_key: code.map(|c| format!("{c}|{}", r.numero_key())),
+            ..Intern::default()
+        },
     }
 }
 
@@ -1284,6 +1308,7 @@ pub async fn build_report(
                 v.etat = Some("VIGUEUR".into());
                 v.etat_libelle = Some(etat_libelle("VIGUEUR"));
                 v.url = article_url(&id);
+                v.intern.article_id = Some(id);
             }
             Ok(Lookup::Autre { id, etat, date_fin }) => {
                 v.statut = Statut::Abroge;
@@ -1292,6 +1317,7 @@ pub async fn build_report(
                 v.etat = etat;
                 v.date_fin = date_fin;
                 v.url = article_url(&id);
+                v.intern.article_id = Some(id);
             }
             Ok(Lookup::Introuvable { ailleurs }) => {
                 v.statut = Statut::Introuvable;
@@ -1354,7 +1380,15 @@ pub async fn build_report(
                 url: None,
                 existe_dans: Vec::new(),
                 detail: Some("Existence non vérifiée automatiquement (texte hors code)".into()),
+                infos: Vec::new(),
                 occurrences: Vec::new(),
+                intern: Intern {
+                    texte: t
+                        .numero
+                        .clone()
+                        .map(|n| (t.nature.to_string(), n, t.date.clone())),
+                    ..Intern::default()
+                },
             }
         });
         entry.occurrences.push(Occurrence {

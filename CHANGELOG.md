@@ -31,6 +31,37 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
   le serveur une longue analyse. Le choix est transmis à chaque requête de chat (`max_tokens`, borné entre
   256 et 1 000 000 côté serveur) ; en mode automatique, `LLM_MAX_TOKENS` reste la valeur appliquée.
 
+- **Vérification des citations étendue** : en plus des articles de codes (inchangés),
+  - **décisions de la Cour de cassation** citées par leur numéro de pourvoi (« Cass. soc., 12 mars 2024,
+    n° 22-12.345 ») : recherche dans Judilibre ; l'info-bulle indique chambre, date, solution et publication ;
+    une date ou une chambre qui ne concordent pas avec celles citées donnent ⚠️ ; une décision non retrouvée
+    donne ❓ (et non ❌ : Judilibre n'est pas exhaustif) ;
+  - **lois, ordonnances et décrets** cités par leur numéro : existence et état juridique (fonds LODA),
+    cohérence de la date citée (auparavant : ancrage seul) ;
+  - **conventions collectives** citées par leur IDCC (consultation KALI) : existence seulement, car le
+    conteneur d'une convention n'a pas d'état juridique dans Légifrance (seuls ses textes en ont un) ;
+  - **citations textuelles** : un passage entre guillemets rattaché sans ambiguïté à un article de code est
+    comparé au texte de l'article sur Légifrance (✅ identique, ⚠️ proche, ⚠️ absent) ; les autres passages
+    sont comparés aux documents fournis au modèle, avec un verdict uniquement positif (✅ ou ⚠️ proche).
+    La comparaison ignore la casse, la ponctuation, les apostrophes typographiques, les ellipses et les
+    insertions entre crochets ;
+  - une citation est rattachée à l'article nommé dans la **phrase d'introduction** qui la précède, même
+    séparée par une ligne vide (« … dispose que : » puis un bloc de citation), et les **blocs de citation
+    Markdown** (`> …`) sont comparés au texte de l'article même sans guillemets ; une étiquette en tête
+    (« **Article 1140** ») n'entre pas dans la comparaison. Un « et actuel » ajouté au texte officiel donne
+    ainsi ⚠️ « proche mais non identique » ;
+  - pour une citation « proche » du texte de l'article, l'info-bulle indique **ce qui diffère** : mots
+    ajoutés (« et actuel ») et mots du texte officiel omis, par alignement mot à mot ;
+  - les citations entre **guillemets droits** `"…"` sont reconnues (en plus de « » et “ ”), et quand la
+    réponse ne cite elle-même aucun article de code, l'article de la **question** (« Cite mot pour mot
+    l'article 1240 du Code civil ») sert de référence : une citation absente de cet article donne ⚠️, sauf
+    s'il y a plusieurs citations (on ne sait alors pas laquelle concerne l'article) ;
+  - l'ancrage (🔎 *hors sources*) s'applique aussi aux décisions et aux IDCC ;
+  - sans identifiants PISTE, ces vérifications se dégradent en silence (ancrage et comparaison aux
+    documents restent actifs) ; seul un article de code continue d'exiger PISTE.
+  Un test manuel contre la vraie API (`cargo test --lib live_piste -- --ignored`) est fourni pour valider
+  les recherches par numéro avant chaque release.
+
 ### Modifié
 
 - **Synthèse de veille** : un texte trop long est désormais réduit en conservant son **début et sa fin**
@@ -48,6 +79,17 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Corrigé
 
+- **Faux sourcing dans le chat sans outils** : le prompt de l'espace « Juris » annonce un accès à Légifrance
+  et Judilibre via MCP. Quand aucun serveur MCP n'est actif, le modèle jouait cet accès (« Texte officiel
+  (à jour)… Source : Légifrance, version consolidée au… ») en citant de mémoire, parfois à tort. Un rappel
+  est désormais ajouté au message système lorsqu'aucun outil n'est exposé : ne pas affirmer avoir consulté
+  une base, signaler les citations de mémoire, résumer plutôt que citer entre guillemets en cas de doute.
+- **Textes d'outils recopiés de façon infidèle** : quand des outils MCP sont actifs, le message système
+  demande désormais de reproduire à l'identique les textes qu'ils renvoient (sans les compléter de mémoire).
+  Le résultat brut d'un outil est journalisé au niveau `debug` (`RUST_LOG=juridix_lib=debug`) pour
+  distinguer une donnée erronée d'un texte altéré par le modèle.
+- **Consultation d'une convention collective par IDCC** (`/consult/kaliContIdcc`) : la requête envoyait
+  la propriété `idcc` alors que la spécification Légifrance attend `id` (« identifiant ou numéro IDCC »).
 - **Recherche Judilibre** : la facette « Conseil d'État » (`ce`) provoquait une erreur HTTP 400 de PISTE
   (Judilibre ne couvre que l'ordre judiciaire : `cc`, `ca`, `tj`, `tcom`, `cph`). Elle est retirée, et les
   tribunaux de commerce et conseils de prud'hommes sont ajoutés. Les décisions du Conseil d'État se

@@ -1,4 +1,17 @@
 // ============================================================================
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
 // Juridix — Pré-filtre Winnow — segment.rs
 // ============================================================================
 // Découpe un texte juridique en « passages » (unités soumises au modèle de
@@ -7,11 +20,6 @@
 //   - « à plat » : les dossiers déjà stockés côté frontend ont été passés dans
 //     `stripHtml`, qui écrase tous les espaces. On réinsère alors des coupures
 //     devant les marqueurs juridiques usuels (Article…, Attendu que…, Vu…).
-//
-// Invariant : la concaténation des passages (séparés par une ligne vide)
-// reproduit le texte d'origine à la normalisation des espaces près — aucun
-// mot n'est ajouté ni supprimé.
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 use once_cell::sync::Lazy;

@@ -26,29 +26,7 @@
 // et la liste des outils exposés sont fixés ICI. Le manifest n'apporte que le
 // chemin du binaire : un manifest altéré ne peut ni ajouter d'arguments ni
 // injecter de variables d'environnement.
-//
-// ── Identifiants ─────────────────────────────────────────────────────────────
-// Les identifiants PISTE saisis dans Juridix (réglages juridiques) sont passés
-// aux serveurs sous les noms qu'ils attendent (`LEGIFRANCE_CLIENT_ID`,
-// `JUDILIBRE_CLIENT_ID`…). Aucun secret n'est écrit sur disque par ce module.
-// Sans identifiants, le serveur n'est pas lancé : on évite de proposer au LLM des
-// outils qui échoueraient tous.
-//
-// ── Outils exposés ───────────────────────────────────────────────────────────
-// Légifrance en offre 62, Judilibre 8 : tous les exposer coûte ≈ 7 600 jetons de
-// définitions à CHAQUE requête de chat et peut dégrader le choix d'outil du modèle.
-// Par défaut (« Essentiels »), chaque spécification limite le catalogue (≈ 1 450
-// jetons au total) ; l'utilisateur peut choisir « Tous » ou une liste
-// personnalisée (`ToolSelection`, mémorisée dans `.tools.json`). La sélection vaut
-// aussi à l'appel : le modèle ne peut pas invoquer un outil qu'on ne lui a pas exposé.
-//
-// ── Cycle de vie ─────────────────────────────────────────────────────────────
-// Un processus par serveur, réutilisé (handshake `initialize` une seule fois).
-// Les requêtes d'un même serveur sont sérialisées. Toute erreur de transport
-// (délai, processus mort, sortie illisible) abandonne le processus : le prochain
-// appel en relance un neuf. Une erreur *applicative* du serveur (outil inconnu,
-// arguments invalides) ne touche pas à la session. Quand Juridix se ferme, les
-// tubes stdin/stdout se ferment et les serveurs s'arrêtent d'eux-mêmes.
+
 
 use std::collections::HashMap;
 use std::path::PathBuf;

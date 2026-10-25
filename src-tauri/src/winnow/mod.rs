@@ -1,4 +1,17 @@
 // ============================================================================
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
 // Juridix — Pré-filtre local « Winnow » (serveur Ollaya)
 // ============================================================================
 // Insère, entre l'extraction des textes (API PISTE : Légifrance / JUDILIBRE)
@@ -16,8 +29,6 @@
 //   2. TRANSPARENCE   — chaque omission est signalée au LLM par un marqueur, et
 //                        détaillée dans `Report` (affichable, auditable).
 //   3. PRUDENCE       — seuils hauts, passages épinglés, plancher par document.
-//
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 pub mod client;

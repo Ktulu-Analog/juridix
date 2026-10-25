@@ -63,6 +63,8 @@ interface MessageProps {
   loading: boolean;
   /** Ce que le modèle a reçu pour ce message (stable : lu seulement au lancement de la vérification). */
   getGrounding?: (msgIndex: number) => CitationGrounding | null;
+  /** Question de l'utilisateur à laquelle répond ce message (conversation libre uniquement). */
+  getQuestion?: (msgIndex: number) => string | null;
 }
 
 /**
@@ -90,7 +92,7 @@ function extractWordTitle(content: string): string | null {
 }
 
 export const Message = memo(function Message({
-  msg, msgIndex, onOpenArtifacts, onRegenerate, onEditResend, onStop, isLast, loading, getGrounding,
+  msg, msgIndex, onOpenArtifacts, onRegenerate, onEditResend, onStop, isLast, loading, getGrounding, getQuestion,
 }: MessageProps) {
   const streamingComponents = useMemo(() => makeMdComponents(true),  []);
   const finalComponents     = useMemo(() => makeMdComponents(false), []);
@@ -107,7 +109,11 @@ export const Message = memo(function Message({
     () => (groundedFlag && getGrounding ? getGrounding(msgIndex) : null),
     [groundedFlag, getGrounding, msgIndex],
   );
-  const citationReport = useCitationReport(contentStr, !isUser && !msg.streaming, groundingGetter);
+  const questionGetter = useCallback(
+    () => (getQuestion ? getQuestion(msgIndex) : null),
+    [getQuestion, msgIndex],
+  );
+  const citationReport = useCitationReport(contentStr, !isUser && !msg.streaming, groundingGetter, questionGetter);
   const renderedContent = useMemo(
     () => annotateCitations(contentStr, citationReport),
     [contentStr, citationReport],

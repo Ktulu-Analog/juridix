@@ -5120,6 +5120,15 @@ a.cite:hover .cite-ref { border-bottom-style: solid; }
 .cite--hors-sources { background: rgba(52, 120, 220, 0.10); }
 .cite--hors-sources .cite-ref { border-bottom-style: dashed; border-bottom-color: #3478dc; }
 .cite--texte.cite--non_verifiable { cursor: help; }
+/* Décisions, conventions collectives, citations textuelles */
+.cite--verifiee .cite-ref { border-bottom-color: #2e9e5b; }
+.cite--incoherente, .cite--approchante { background: rgba(230, 160, 0, 0.14); }
+.cite--incoherente .cite-ref, .cite--approchante .cite-ref { border-bottom-color: #d98e00; }
+.cite--non_retrouvee { background: rgba(120, 125, 145, 0.14); cursor: help; }
+.cite--non_retrouvee .cite-ref { border-bottom-color: #8a8fa0; }
+/* Une citation ne porte le badge que sur son guillemet fermant : pas de soulignement. */
+.cite--citation .cite-ref { border-bottom: none; }
+.cite--citation { cursor: help; }
 .cite-flag--ancrage { margin-left: 2px; }
 
 /* ── Serveurs MCP officiels (Légifrance, Judilibre) ──────────────────────── */

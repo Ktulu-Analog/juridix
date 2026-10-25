@@ -11,15 +11,8 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-//! Pipeline RAG Qdrant.
-//!
-//! Architecture :
-//!   - Embeddings  : Albert API  (`/embeddings`)
-//!   - Stockage    : Qdrant local (`QDRANT_URL`, clé optionnelle `QDRANT_API_KEY` ou préférences)
-//!   - Reranking   : Albert API  (`/rerank`)
-//!
-//! Toutes les fonctions Qdrant acceptent `qdrant_key: Option<&str>`.
-//! Priorité : valeur des préférences utilisateur > variable d'env QDRANT_API_KEY.
+// Pipeline RAG Qdrant.
+
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

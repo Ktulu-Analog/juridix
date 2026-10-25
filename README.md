@@ -77,7 +77,7 @@ des blocs ECharts par une analyse JSON et met à jour les dépendances vulnérab
 | 💬 **Chat IA juridique** | Espace « Juris » avec accès outillé (MCP) aux outils Légifrance (62 au total) et JUDILIBRE, via les serveurs officiels intégrés, pour des réponses sourcées et à jour |
 | 🔔 **Veille juridique** | Critères enregistrés (mots-clés, fonds Légifrance, nature, code, juridictions Judilibre) rejoués en tâche de fond ; badge 🔔 sur les textes et décisions **nouveaux**, rattrapage au démarrage |
 | 📝 **Synthèse de veille** | Sélection de 15 textes ou décisions au maximum, consigne facultative (« pour un DRH… »), note de veille rédigée à partir du texte intégral et téléchargeable en Word |
-| ✅ **Vérification des citations** | Les articles de codes cités par le modèle sont contrôlés sur Légifrance (en vigueur / abrogé / introuvable) ; les références absentes des documents fournis sont signalées 🔎 |
+| ✅ **Vérification des citations** | Articles de codes, lois / ordonnances / décrets (par numéro), décisions de la Cour de cassation (par numéro de pourvoi), conventions collectives (IDCC) et passages entre guillemets sont contrôlés ; les références absentes des documents fournis sont signalées 🔎 |
 | 📋 **Traitement IA des documents consultés** | Synthèse, analyse contradictoire et extraction des points clés d'un document ou d'un dossier constitué depuis la recherche juridique |
 | 📚 **RAG (Qdrant)** | Ingestion PDF/DOCX (jurisprudence, doctrine, contrats…), recherche sémantique + reranking ; stockage vectoriel via **Qdrant** local ou distant |
 | 🔌 **MCP** | Serveurs MCP externes (HTTP Streamable 2025-03-26) utilisés **après autorisation** ; serveurs officiels Légifrance et Judilibre importés depuis le pack et lancés en STDIO |
@@ -296,7 +296,23 @@ hors chat, aux fonds Légifrance et JUDILIBRE :
 - **Vérification des citations** : les références d'articles citées dans une réponse sont contrôlées sur
   Légifrance (✅ en vigueur, ⚠️ abrogé ou plus en vigueur, ❌ introuvable) en arrière-plan. Pour les
   réponses produites à partir de documents, toute référence (y compris lois, décrets, arrêtés) qui ne figure
-  dans rien de ce qui a été fourni au modèle est marquée 🔎 *hors sources*
+  dans rien de ce qui a été fourni au modèle est marquée 🔎 *hors sources*.
+  La vérification couvre aussi :
+  - les **lois, ordonnances et décrets cités par leur numéro** (✅ en vigueur, ⚠️ abrogé, ⚠️ date citée
+    différente de celle du texte, ❓ non retrouvé) ;
+  - les **décisions de la Cour de cassation citées par leur numéro de pourvoi**, recherchées dans
+    Judilibre (✅ retrouvée, avec chambre, date, solution et publication dans l'info-bulle ; ⚠️ date ou
+    chambre citées qui ne concordent pas ; ❓ non retrouvée). **❓ n'est pas une preuve d'inexistence** :
+    Judilibre ne contient pas toutes les décisions ;
+  - les **conventions collectives citées par leur IDCC** (✅ retrouvée ; pas d'état « en vigueur » : il n'existe
+    pas pour une convention dans Légifrance) ;
+  - les **passages entre guillemets** : rattachés sans ambiguïté à un article de code, ils sont comparés au
+    texte de l'article sur Légifrance (✅ identique, ⚠️ proche ou absent) ; sinon, ils sont comparés aux
+    documents fournis au modèle (✅ retrouvé, ⚠️ proche), sans verdict négatif : un passage absent des
+    documents peut provenir d'un résultat d'outil ou d'un extrait dont le texte n'est pas conservé.
+
+  Non couverts pour l'instant : les décisions du Conseil d'État et des juridictions administratives, les
+  décisions citées uniquement par leur ECLI, et les arrêtés et circulaires (ancrage seul).
 
 ## Veille juridique
 

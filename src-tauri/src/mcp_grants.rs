@@ -11,7 +11,7 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-//! Autorisation des serveurs MCP — « une fois par serveur »
+// Autorisation des serveurs MCP — « une fois par serveur »
 
 use reqwest::Client;
 use serde::Serialize;

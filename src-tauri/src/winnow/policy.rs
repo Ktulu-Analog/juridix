@@ -1,14 +1,25 @@
 // ============================================================================
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
 // Juridix — Pré-filtre Winnow — policy.rs
 // ============================================================================
 // Les questions posées au modèle de décision, et la politique qui transforme
 // ses probabilités en « garder / écarter ».
-//
-// Asymétrie assumée : en droit, écarter à tort un passage (ex. l'exception qui
+// Asymétrie assumée : écarter à tort un passage (ex. l'exception qui
 // renverse la règle) coûte bien plus cher que garder un passage inutile. La
 // politique n'écarte donc que sur forte probabilité, jamais un passage
 // « épinglé », et garantit un plancher de passages conservés par document.
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 use once_cell::sync::Lazy;

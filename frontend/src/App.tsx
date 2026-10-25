@@ -771,6 +771,21 @@ function AppInner() {
     const sources = all.slice(0, msgIndex).filter(m => m.role === 'user').map(m => textOf(m.content)).filter(Boolean);
     return { sources, keys: target.groundingKeys ?? [] };
   }, []);
+  // Question à laquelle répond un message, pour retrouver l'article qu'elle désigne (« Cite
+  // l'article 1240… ») quand la réponse n'en cite aucun. Conversation libre seulement : pour une
+  // analyse de documents, la « question » est un corpus entier et l'ancrage s'applique déjà.
+  const getQuestionFor = useCallback((msgIndex: number): string | null => {
+    const all = messagesRef.current;
+    const target = all[msgIndex];
+    if (!target || target.grounded) return null;
+    for (let i = msgIndex - 1; i >= 0; i--) {
+      if (all[i].role !== 'user') continue;
+      const c = all[i].content;
+      const text = typeof c === 'string' ? c : c.map(p => p.text ?? '').filter(Boolean).join('\n');
+      return text.trim() ? text.slice(0, 2000) : null;
+    }
+    return null;
+  }, []);
   const getArtifactsGrounding = useCallback(
     () => (artifactsMsgIndex === null ? null : getGroundingFor(artifactsMsgIndex)),
     [artifactsMsgIndex, getGroundingFor],
@@ -1071,6 +1086,7 @@ function AppInner() {
                     onStop={stopStreaming}
                     isLast={i === messages.length - 1}
                     getGrounding={getGroundingFor}
+                    getQuestion={getQuestionFor}
                     loading={loading}
                   />
                 ))}
@@ -1217,6 +1233,7 @@ function AppInner() {
                             onStop={stopStreaming}
                             isLast={i === messages.length - 1}
                             getGrounding={getGroundingFor}
+                            getQuestion={getQuestionFor}
                             loading={loading}
                           />
                         ))}

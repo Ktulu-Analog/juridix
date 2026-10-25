@@ -36,6 +36,7 @@ use super::{
     judilibre::{self, JudilibreExportParams, JudilibreSearchParams},
     legifrance::{self, FiltreValeurs, SearchFond},
     verify::{self, CachedLookup, LegifranceLookup, NoLookup},
+    verify_ext::{self, CachedExt, NoExt, PisteExt},
 };
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
@@ -2497,6 +2498,34 @@ pub struct VerifierCitationsRequest {
     /// Clés d'ancrage déjà calculées côté chat (résultats d'outils MCP, extraits RAG).
     #[serde(default)]
     pub cles_sources: Vec<String>,
+    /// Question de l'utilisateur à laquelle répond `texte`. Sert uniquement à retrouver l'article
+    /// que désignent ses citations quand la réponse n'en cite aucun (« Cite l'article 1240… »).
+    #[serde(default)]
+    pub contexte: Option<String>,
+}
+
+/// Part de la question analysée pour y chercher un article de code (le début suffit : on
+/// ne veut pas fouiller un long document collé dans le message).
+pub const MAX_CONTEXTE_CHARS: usize = 2_000;
+
+/// Identifie sur Légifrance l'article de code désigné par la question.
+/// Ni verdict ni erreur ici : sans identification, les citations ne sont simplement pas comparées.
+pub(crate) async fn resolve_context_article<L: verify::ArticleLookup>(
+    lookup: &L,
+    r: &verify::ArticleRef,
+) -> Option<verify_ext::ContextArticle> {
+    let code = r.code?;
+    let (id, etat) = match lookup.lookup(code, &r.numero_query()).await.ok()? {
+        verify::Lookup::EnVigueur { id } => (id, Some(verify::etat_libelle("VIGUEUR"))),
+        verify::Lookup::Autre { id, etat, .. } => (id, etat.as_deref().map(verify::etat_libelle)),
+        verify::Lookup::Introuvable { .. } => return None,
+    };
+    Some(verify_ext::ContextArticle {
+        reference: format!("{code}, art. {}", r.numero_display()),
+        code: Some(code.to_string()),
+        id,
+        etat_libelle: etat,
+    })
 }
 
 /// Plafond des `sources` brutes. Au-delà, l'ancrage est désactivé : une liste
@@ -2533,14 +2562,19 @@ pub async fn verifier_citations<S: HasJuridiqueState>(
     }
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let refs = verify::extract_article_refs(&req.texte);
-    let texts = verify::extract_text_refs(&req.texte);
+    let ext = verify_ext::extract_ext_refs(&req.texte);
+    // Une décision citée par son numéro n'est pas un texte hors code (« décision n° 22-12 »).
+    let mut texts = verify::extract_text_refs(&req.texte);
+    texts.retain(|t| !verify_ext::overlaps_decision(t.start, t.end, &ext.decisions));
 
     // Index d'ancrage : sources brutes + clés déjà calculées. Désactivé si rien n'a
     // été fourni (pas de contexte ⇒ pas de verdict) ou si les sources dépassent le
     // plafond (une liste tronquée donnerait de faux « hors sources »).
+    let sources_ok =
+        req.ancrage && req.sources.iter().map(String::len).sum::<usize>() <= MAX_SOURCES_BYTES;
     let grounding = if req.ancrage {
-        let total: usize = req.sources.iter().map(String::len).sum();
-        if total > MAX_SOURCES_BYTES {
+        if !sources_ok {
+            let total: usize = req.sources.iter().map(String::len).sum();
             warn!("[Vérification] sources trop volumineuses ({total} o) : ancrage désactivé");
             None
         } else {
@@ -2556,40 +2590,90 @@ pub async fn verifier_citations<S: HasJuridiqueState>(
     } else {
         None
     };
-
-    // Rien à interroger (aucune référence, ou aucun code identifié) : pas besoin de PISTE.
-    if !refs.iter().any(|r| r.code.is_some()) {
-        let report = verify::build_report(
-            &NoLookup,
-            &req.texte,
-            &refs,
-            &texts,
-            grounding.as_ref(),
-            &today,
-        )
-        .await;
-        return Json(report).into_response();
-    }
-
-    let js = state.juridique_state();
-    let client = match js.client_async().await {
-        Ok(c) => c,
-        Err(r) => return r,
+    // Les documents ne servent à comparer les citations que si l'ancrage est actif.
+    let sources: &[String] = if grounding.is_some() {
+        &req.sources
+    } else {
+        &[]
     };
-    let lookup = CachedLookup::new(
-        LegifranceLookup::new(client),
-        js.cache.clone(),
-        today.clone(),
-    );
-    let report = verify::build_report(
-        &lookup,
-        &req.texte,
-        &refs,
-        &texts,
-        grounding.as_ref(),
-        &today,
-    )
-    .await;
+
+    // PISTE n'est exigé (503) que pour les articles de codes, comme avant. Pour tout le
+    // reste (décisions, textes numérotés, conventions, citations), son absence dégrade
+    // silencieusement : l'ancrage et la comparaison aux documents restent calculés.
+    let needs_articles = refs.iter().any(|r| r.code.is_some());
+    // Article désigné par la question (la réponse n'en cite aucun) : plafonné pour ne jamais
+    // analyser un long document collé dans la question.
+    let ctx_ref = req.contexte.as_deref().and_then(|c| {
+        let c: String = c.chars().take(MAX_CONTEXTE_CHARS).collect();
+        verify_ext::context_article_ref(&c, &refs, &ext.quotes)
+    });
+    let needs_ext = verify_ext::needs_network(&ext, &texts, &refs, &req.texte, ctx_ref.is_some());
+    let client = if needs_articles || needs_ext {
+        match state.juridique_state().client_async().await {
+            Ok(c) => Some(c),
+            Err(r) if needs_articles => return r,
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let report = match client {
+        None => {
+            let mut report = verify::build_report(
+                &NoLookup,
+                &req.texte,
+                &refs,
+                &texts,
+                grounding.as_ref(),
+                &today,
+            )
+            .await;
+            let ext_input = verify_ext::ExtInput {
+                text: &req.texte,
+                article_refs: &refs,
+                ext: &ext,
+                grounding: grounding.as_ref(),
+                sources,
+                context_article: None,
+            };
+            verify_ext::extend_report(&NoExt, ext_input, &mut report).await;
+            report
+        }
+        Some(client) => {
+            let cache = state.juridique_state().cache.clone();
+            let lookup = CachedLookup::new(
+                LegifranceLookup::new(client.clone()),
+                cache.clone(),
+                today.clone(),
+            );
+            let mut report = verify::build_report(
+                &lookup,
+                &req.texte,
+                &refs,
+                &texts,
+                grounding.as_ref(),
+                &today,
+            )
+            .await;
+            // Article de la question : identifié sur Légifrance comme les autres articles.
+            let context_article = match &ctx_ref {
+                Some(r) => resolve_context_article(&lookup, r).await,
+                None => None,
+            };
+            let ext_input = verify_ext::ExtInput {
+                text: &req.texte,
+                article_refs: &refs,
+                ext: &ext,
+                grounding: grounding.as_ref(),
+                sources,
+                context_article: context_article.as_ref(),
+            };
+            let ext_lookup = CachedExt::new(PisteExt::new(client), cache, today.clone());
+            verify_ext::extend_report(&ext_lookup, ext_input, &mut report).await;
+            report
+        }
+    };
     Json(report).into_response()
 }
 

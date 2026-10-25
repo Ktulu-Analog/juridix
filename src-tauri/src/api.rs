@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 
 use crate::config;
 
-// ── Provenance des citations (chantier 4) ─────────────────────────────────────
+// ── Provenance des citations ─────────────────────────────────────
 //
 // Le LLM ne cite « de source » que ce qu'on lui a fourni : documents du prompt
 // (connus du frontend), mais aussi résultats d'outils MCP et extraits RAG, que
@@ -78,7 +78,7 @@ use bytes::Bytes;
 use futures::stream::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::juridique::{juridique_router, HasJuridiqueState, JuridiqueState};
 use crate::{
@@ -275,6 +275,49 @@ Quand l'utilisateur demande une image ou quand le contexte de recherche web cont
 - Pour Wikimedia Commons, utilise l'URL de la page (ex: https://commons.wikimedia.org/wiki/File:X.jpg)
 ──────────────────────────────────────────
 "#;
+
+/// Ajouté au message système quand AUCUN outil n'est exposé au modèle. Certains prompts d'espace
+/// (« Juris ») annoncent un accès à Légifrance et Judilibre via MCP : sans outil réellement
+/// disponible, le modèle jouait le sourcing (« Texte officiel (à jour)… Source : Légifrance »)
+/// et citait de mémoire en le présentant comme consulté.
+const NO_TOOLS_NOTICE: &str = "\n\n## Outils indisponibles dans cette conversation\n\
+Aucun outil (Légifrance, Judilibre ou autre) n'est disponible ici, quoi que les instructions \
+ci-dessus puissent indiquer. Réponds à partir de tes connaissances et de ce que l'utilisateur \
+a fourni.\n\
+- N'affirme jamais avoir consulté, interrogé ou vérifié une base ou un site. N'écris pas \
+« texte officiel », « version consolidée au… » ni « Source : Légifrance » pour un texte que \
+tu n'as pas reçu.\n\
+- Si tu cites de mémoire un texte ou une décision, dis-le (« de mémoire, à vérifier sur \
+Légifrance »). Si tu n'es pas certain du libellé exact, résume-le au lieu de le mettre entre \
+guillemets.\n\
+- Invite l'utilisateur à vérifier les références avec la recherche Légifrance / Judilibre de \
+Juridix.\n";
+
+/// Ajouté au message système quand des outils sont exposés. Un modèle qui recopie un texte
+/// reçu d'un outil le « complète » volontiers de mémoire (ex. « … à un mal considérable et
+/// actuel » là où l'article 1140 s'arrête à « considérable ») : la consigne l'interdit.
+const TOOL_QUOTE_NOTICE: &str = "\n\n## Reproduction des textes issus des outils\n\
+Quand tu reproduis un article, une décision ou tout texte renvoyé par un outil, recopie-le à \
+l'identique, mot pour mot. Ne l'abrège pas, ne le complète pas, ne le modernise pas et ne le \
+corrige pas d'après ta mémoire, même s'il te paraît incomplet ou différent de ce que tu \
+connais : le texte de l'outil fait foi. Pour abréger, utilise « […] ». Place le texte cité \
+entre guillemets ou dans un bloc de citation.\n";
+
+/// Ajoute `notice` au message système (premier message) du payload envoyé au LLM.
+fn append_system_notice(payload: &mut [Value], notice: &str) {
+    if let Some(sys) = payload.first_mut() {
+        if sys["role"] == "system" {
+            if let Some(cur) = sys["content"].as_str() {
+                let merged = format!("{cur}{notice}");
+                sys["content"] = json!(merged);
+            }
+        }
+    }
+}
+
+fn append_no_tools_notice(payload: &mut [Value]) {
+    append_system_notice(payload, NO_TOOLS_NOTICE);
+}
 
 fn default_system() -> String {
     format!(
@@ -1050,6 +1093,13 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
             (Vec::new(), Vec::new(), Bytes::new())
         };
 
+    // Aucun outil exposé : le modèle ne doit pas croire (ni laisser croire) qu'il a consulté une base.
+    if mcp_tools.is_empty() {
+        append_no_tools_notice(&mut messages_payload);
+    } else {
+        append_system_notice(&mut messages_payload, TOOL_QUOTE_NOTICE);
+    }
+
     // Ajouter l'instruction MCP image si des serveurs MCP autorisés sont disponibles
     if !authorized_servers.is_empty() {
         final_system.push_str(MCP_IMAGE_INSTRUCTION);
@@ -1249,6 +1299,15 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
                     info!("MCP: appel tool {} sur {}", real_tool_name, server);
                     let mcp_result =
                         crate::mcp::call_tool(&client, &server, real_tool_name, &fn_args).await;
+                    // Diagnostic (RUST_LOG=juridix_lib=debug) : ce que l'outil a VRAIMENT renvoyé,
+                    // pour distinguer une donnée erronée d'un texte altéré par le modèle. Niveau
+                    // debug uniquement : le contenu d'un outil peut être confidentiel.
+                    debug!(
+                        "MCP: résultat de {} ({} car.) : {}",
+                        real_tool_name,
+                        mcp_result.text.chars().count(),
+                        mcp_result.text.chars().take(800).collect::<String>()
+                    );
                     // Ce que l'outil a ramené compte comme « fourni au modèle ».
                     add_grounding(&mut grounding, [mcp_result.text.as_str()]);
 
@@ -2539,5 +2598,53 @@ async fn upload_document(State(state): State<Arc<AppState>>, mut multipart: Mult
             error!("[upload] ✗ '{}' : {}", file_name, e);
             err(StatusCode::UNPROCESSABLE_ENTITY, e)
         }
+    }
+}
+
+#[cfg(test)]
+mod no_tools_notice_tests {
+    use super::*;
+
+    #[test]
+    fn the_notice_is_appended_to_the_system_message_only() {
+        let mut payload = vec![
+            json!({"role": "system", "content": "Tu as accès à Légifrance via des outils MCP."}),
+            json!({"role": "user", "content": "Cite l'article 1240"}),
+        ];
+        append_no_tools_notice(&mut payload);
+        let sys = payload[0]["content"].as_str().unwrap();
+        assert!(
+            sys.starts_with("Tu as accès à Légifrance"),
+            "le prompt d'origine est conservé"
+        );
+        assert!(sys.contains("Outils indisponibles"));
+        assert!(sys.contains("N'affirme jamais avoir consulté"));
+        assert!(
+            sys.contains("Source : Légifrance"),
+            "la formule à ne pas produire est nommée"
+        );
+        assert_eq!(
+            payload[1]["content"], "Cite l'article 1240",
+            "le message utilisateur est intact"
+        );
+    }
+
+    #[test]
+    fn the_verbatim_notice_forbids_completing_a_tool_text_from_memory() {
+        let mut payload = vec![json!({"role": "system", "content": "Base."})];
+        append_system_notice(&mut payload, TOOL_QUOTE_NOTICE);
+        let sys = payload[0]["content"].as_str().unwrap();
+        assert!(sys.starts_with("Base."));
+        assert!(sys.contains("mot pour mot"));
+        assert!(sys.contains("ne le complète pas"));
+        assert!(sys.contains("le texte de l'outil fait foi"));
+    }
+
+    #[test]
+    fn a_payload_without_a_system_message_is_left_alone() {
+        let mut payload = vec![json!({"role": "user", "content": "bonjour"})];
+        append_no_tools_notice(&mut payload);
+        assert_eq!(payload[0]["content"], "bonjour");
+        append_no_tools_notice(&mut []);
     }
 }

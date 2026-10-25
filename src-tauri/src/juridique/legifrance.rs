@@ -12,6 +12,7 @@
 // ============================================================================
 
 // ============================================================================
+// Juridix — Module Juridique — legifrance.rs
 // Fonctions de recherche Légifrance (API PISTE).
 // ============================================================================
 
@@ -795,7 +796,9 @@ pub async fn get_kali_cont(client: &PisteClient, id: &str) -> Result<Value> {
 /// Récupère un conteneur KALI par son IDCC.
 pub async fn get_kali_cont_idcc(client: &PisteClient, idcc: &str) -> Result<Value> {
     let url = format!("{}/consult/kaliContIdcc", client.legifrance_base());
-    let body = json!({ "idcc": idcc });
+    // Spec officielle (KaliContConsultIdccRequest) : la propriété s'appelle `id`
+    // (« identifiant de la convention collective ou son numéro IDCC »), pas `idcc`.
+    let body = json!({ "id": idcc });
     client.post_json::<Value, Value>(&url, &body).await
 }
 

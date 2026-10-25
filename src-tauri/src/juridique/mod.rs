@@ -11,15 +11,19 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
+// ============================================================================
+// Juridix — Module Juridique — mod.rs
+// ============================================================================
 // Module "Recherche juridique" : Search Engine PISTE (Légifrance + JUDILIBRE)
 // + handlers Axum + état partagé.
-//
+// ============================================================================
 
 pub mod client;
 pub mod judilibre;
 pub mod legifrance;
 pub mod routes;
 pub mod verify;
+pub mod verify_ext;
 
 // Re-exports pour api.rs
 pub use routes::{juridique_router, HasJuridiqueState, JuridiqueState};

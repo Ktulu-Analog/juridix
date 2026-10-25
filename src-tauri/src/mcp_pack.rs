@@ -23,26 +23,6 @@
 // autres serveurs du pack (Grist, Image, Système de fichiers…) sont ignorés à
 // toutes les étapes : jamais téléchargés, jamais installés, jamais découverts
 // même s'ils se trouvent dans le dossier.
-//
-// Chaque release publie, en plus de l'archive complète `mcp-pack-<v>.zip`, un zip
-// par serveur `<id>-<v>.zip` avec sa ligne dans `checksums.txt` : on ne télécharge
-// que ceux-là (≈ 6 Mo chacun au lieu de ≈ 28 Mo pour le pack entier).
-//
-// Intégrité, en deux niveaux :
-//  1. SHA-256 de chaque zip, lu dans `checksums.txt` de la même release : protège d'un
-//     téléchargement corrompu ou tronqué, PAS d'une release compromise (qui pourrait
-//     modifier l'archive ET son empreinte) ;
-//  2. SIGNATURE minisign de `checksums.txt` (`checksums.txt.minisig`), vérifiée avec la clé
-//     publique du fichier `src-tauri/mcp-pack.pub` (embarquée à la compilation) : sans la clé
-//     privée, une release altérée ne peut plus être installée, tout en laissant les mises à
-//     jour indépendantes des versions de Juridix (on ne fige donc pas les empreintes dans le
-//     code). Le commentaire signé doit contenir `version:<version>` : c'est le format produit
-//     par `sign-mcp-pack.sh` du dépôt Demeter, MÊME clé et MÊME signature pour Demeter et
-//     Juridix. Il lie la signature à la release (contre le rejeu d'une ancienne release), et un
-//     retour à une version antérieure à celle installée est refusé.
-//
-// Une build de release ne compile que si `mcp-pack.pub` contient une clé (voir plus bas) :
-// il n'existe donc pas de binaire publié en « mode de transition » (SHA-256 seul).
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};

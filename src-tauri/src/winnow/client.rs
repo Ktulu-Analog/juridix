@@ -1,4 +1,17 @@
 // ============================================================================
+// Juridix — Assistant IA juridique desktop
+// ============================================================================
+// Auteur  : Pierre COUGET
+// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
+//           https://www.gnu.org/licenses/agpl-3.0.html
+// Année   : 2026
+// ----------------------------------------------------------------------------
+// Ce fichier fait partie du projet Juridix.
+// Vous pouvez le redistribuer et/ou le modifier selon les termes de la
+// licence AGPL-3.0 publiée par la Free Software Foundation.
+// ============================================================================
+
+// ============================================================================
 // Juridix — Pré-filtre Winnow — client.rs
 // ============================================================================
 // Client de l'API native d'Ollaya (https://ollaya.dev/docs/api) :
@@ -6,11 +19,6 @@
 //   GET  /api/version  — sonde de disponibilité
 //   GET  /api/tags     — modèles présents sur la machine
 //   GET  /api/ps       — modèles chargés en mémoire
-//
-// Ollaya sérialise les requêtes d'un même modèle (une à la fois) : on envoie
-// donc TOUTES les questions d'un passage en une seule requête, et les
-// passages l'un après l'autre.
-// Licence : GNU Affero General Public License v3.0 (AGPL-3.0)
 // ============================================================================
 
 use once_cell::sync::Lazy;
