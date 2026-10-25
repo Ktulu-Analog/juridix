@@ -27,7 +27,6 @@
 // chemin du binaire : un manifest altéré ne peut ni ajouter d'arguments ni
 // injecter de variables d'environnement.
 
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;

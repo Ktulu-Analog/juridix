@@ -38,7 +38,6 @@
 //!    et le marqueur. Si l'application est interrompue entre-temps, le marqueur
 //!    garantit que l'effacement sera terminé au lancement suivant.
 
-
 use std::fs::File;
 use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};

@@ -11,9 +11,6 @@
 // licence AGPL-3.0 publiée par la Free Software Foundation.
 // ============================================================================
 
-// Pipeline RAG Qdrant.
-
-
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
