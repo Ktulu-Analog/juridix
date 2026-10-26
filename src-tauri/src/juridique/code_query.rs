@@ -411,6 +411,7 @@ pub struct Hit {
 }
 
 impl Hit {
+    #[cfg(test)]
     pub fn is_vigueur(&self) -> bool {
         self.etat.as_deref().map(str::to_uppercase).as_deref() == Some("VIGUEUR")
     }
