@@ -36,7 +36,7 @@ import {
   FONDS_SANS_RECHERCHE_TEXTUELLE,
   JURISDICTIONS_JUDILIBRE, PUBLICATIONS_JUDILIBRE, SOLUTIONS_JUDILIBRE,
 } from '../constants';
-import type { SearchResult, SearchResponse, Source, Fond } from '../types';
+import type { SearchResult, SearchResponse, RechercheCodeMeta, Source, Fond } from '../types';
 
 const PAGE_SIZE = 10;
 
@@ -127,6 +127,8 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Recherche dans les codes : mode retenu et note explicative (« résultats approchés »…).
+  const [rechercheMeta, setRechercheMeta] = useState<RechercheCodeMeta | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   // ── Historique ───────────────────────────────────────────────────────────
@@ -216,6 +218,7 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
     if (needsQuery && !query.trim()) return;
     setLoading(true);
     setError(null);
+    if (targetPage === 1) setRechercheMeta(null);
     setHasSearched(true);
     // Fige le fond/source de CETTE recherche : les résultats affichés doivent
     // garder leur identité même si l'utilisateur clique ensuite sur un autre
@@ -335,6 +338,8 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
       body.fond = fond;
       body.champ_recherche = champRecherche !== 'ALL' ? champRecherche : undefined;
       body.sort = sort;
+      // Pages suivantes d'une recherche plein texte dans les codes : rejouer le palier de la page 1.
+      if (targetPage > 1 && rechercheMeta?.palier) body.recherche_palier = rechercheMeta.palier;
       if (nature.length) body.nature = nature;
       if (legalStatus.length) body.legal_status = legalStatus;
       if (fond === 'CNIL') {
@@ -376,6 +381,7 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
 
       setResults(data.results || []);
       setTotal(data.total ?? data.totalResultNumber ?? null);
+      if (data.recherche) setRechercheMeta(data.recherche);
       setPage(targetPage);
 
       if (query.trim()) {
@@ -395,7 +401,7 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
     jurisdiction, publication, solution, chamber, formation, theme, location,
     judField, judOperator, withFileOfType, particularInterest,
     boccIdcc, typesPublication, parlementTypes, docAdminYears,
-    cnilType, cnilNatureDelib,
+    cnilType, cnilNatureDelib, rechercheMeta,
   ]);
 
   const handleSubmit = useCallback((e: FormEvent) => {
@@ -486,6 +492,7 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
     page, setPage, PAGE_SIZE,
     // Résultats
     results, setResults, resultsFond, resultsSource, total, setTotal, loading, error, hasSearched,
+    rechercheMeta,
     // Historique
     history, setHistory,
     // Taxonomies

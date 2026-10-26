@@ -40,6 +40,11 @@ export function fondToEndpointInfo(fond: Fond, id: string, idIsTextId: boolean):
   switch (fond) {
     case 'CODE_DATE':
     case 'CODE_ETAT':
+      // Recherche par article ou plein texte dans les codes : les résultats sont
+      // des articles (LEGIARTI…), à ouvrir directement et non via le code entier.
+      if (id.startsWith('LEGIARTI')) {
+        return { endpoint: `${base}/article/${encodeURIComponent(id)}`, type: 'article' };
+      }
       return { endpoint: `${base}/code/${encodeURIComponent(id)}`, type: 'code' };
 
     case 'LODA_DATE':

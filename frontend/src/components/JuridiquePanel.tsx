@@ -161,7 +161,7 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
     cnilType, setCnilType, cnilTypeInput, setCnilTypeInput,
     cnilNatureDelib, setCnilNatureDelib, cnilNatureDelibInput, setCnilNatureDelibInput,
     page, setPage, PAGE_SIZE,
-    results, setResults, resultsFond, resultsSource, total, setTotal, loading, error, hasSearched,
+    results, setResults, resultsFond, resultsSource, total, setTotal, loading, error, hasSearched, rechercheMeta,
     history,
     taxonomiesLoading, fetchTaxonomy, taxoContext,
     chamberOptions, formationOptions, themeOptions, locationOptions,
@@ -211,6 +211,9 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
   // Veille juridique : panneau + ouverture depuis le badge de la barre du haut.
   const [showVeille, setShowVeille] = useState(false);
   useEffect(() => { if (veilleSignal > 0) setShowVeille(true); }, [veilleSignal]);
+
+  // Copie de la sélection depuis le popover d'annotation (retour visuel « Copié »).
+  const [selectionCopied, setSelectionCopied] = useState(false);
 
   // ── Annotations ─────────────────────────────────────────────────────────────
   // viewerContentRef vient de useDocumentViewer : partagée avec le mécanisme
@@ -1268,6 +1271,10 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
             </div>
           )}
 
+          {hasSearched && !loading && !error && rechercheMeta?.note && (
+            <div className="jur-searchbar-hint" role="status">{rechercheMeta.note}</div>
+          )}
+
           <div className="jur-results">
             {error && (
               <div className="jur-error">
@@ -2200,6 +2207,31 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
                     />
                     <div className="jur-ann-popover-btns">
                       <button className="jur-btn jur-btn--sm jur-btn--primary" onClick={saveAnnotation}>Annoter</button>
+                      <button
+                        className="jur-btn jur-btn--sm"
+                        title="Copier la sélection dans le presse-papiers"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const text = pendingAnnotation.text;
+                          let ok = false;
+                          try { await navigator.clipboard.writeText(text); ok = true; } catch { /* repli ci-dessous */ }
+                          if (!ok) {
+                            // Repli (webview sans API clipboard) : textarea temporaire + execCommand.
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            try { ok = document.execCommand('copy'); } catch { ok = false; }
+                            document.body.removeChild(ta);
+                          }
+                          if (ok) {
+                            setSelectionCopied(true);
+                            window.setTimeout(() => { setSelectionCopied(false); setPendingAnnotation(null); }, 900);
+                          }
+                        }}
+                      >{selectionCopied ? 'Copié ✓' : 'Copier'}</button>
                       <button className="jur-btn jur-btn--sm" onClick={() => setPendingAnnotation(null)}>Annuler</button>
                     </div>
                   </div>

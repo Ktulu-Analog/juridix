@@ -33,6 +33,7 @@ use tracing::{error, info, warn};
 
 use super::{
     client::PisteClient,
+    code_search,
     judilibre::{self, JudilibreExportParams, JudilibreSearchParams},
     legifrance::{self, FiltreValeurs, SearchFond},
     verify::{self, CachedLookup, LegifranceLookup, NoLookup},
@@ -157,6 +158,10 @@ pub struct RechercherRequest {
     pub page_size: Option<u32>,
     /// Champ de recherche spécifique (ALL, TITLE, NOR, NUM, ARTICLE, etc.)
     pub champ_recherche: Option<String>,
+    /// Fonds CODE_* — palier de recherche plein texte à rejouer pour les pages
+    /// suivantes (valeur `recherche.palier` de la réponse de la page 1) :
+    /// « exacte » | « tous_les_mots » | « un_des_mots ».
+    pub recherche_palier: Option<String>,
     // JUDILIBRE
     pub operator: Option<String>,
     pub field: Option<Vec<String>>,
@@ -508,22 +513,50 @@ pub async fn rechercher<S: HasJuridiqueState>(
                 .map(|c| c.to_uppercase())
                 .filter(|c| !c.is_empty() && c != "ALL")
                 .unwrap_or_else(|| "ALL".to_string());
-            legifrance::search_simple(
-                &client,
-                req.query.as_deref().unwrap_or(""),
-                fond,
-                req.page.unwrap_or(1),
-                req.page_size.unwrap_or(10).min(100),
-                req.sort,
-                req.nature,
-                req.date_start,
-                req.date_end,
-                Some(type_champ),
-                req.legal_status,
-                req.facette_extra,
-            )
-            .await
-            .map(|r| serde_json::to_value(r).unwrap_or_default())
+            // Fonds CODE_* : « code civil, article 1140 » (article par numéro) et
+            // phrases libres (recherche par paliers dans le contenu des articles)
+            // sont traités par `code_search`. `Ok(None)` = saisie non concernée
+            // (« code civil » seul, champ TITLE/TABLE…) → recherche historique.
+            let smart = if fond.is_code() {
+                code_search::search_codes(
+                    &client,
+                    &code_search::CodeSearchRequest {
+                        query: req.query.as_deref().unwrap_or(""),
+                        fond: fond.clone(),
+                        champ: &type_champ,
+                        page: req.page.unwrap_or(1),
+                        page_size: req.page_size.unwrap_or(10).min(100),
+                        sort: req.sort.clone(),
+                        legal_status: req.legal_status.clone(),
+                        date_start: req.date_start.clone(),
+                        date_end: req.date_end.clone(),
+                        palier: req.recherche_palier.as_deref(),
+                    },
+                )
+                .await
+            } else {
+                Ok(None)
+            };
+            match smart {
+                Ok(Some(v)) => Ok(v),
+                Err(e) => Err(e),
+                Ok(None) => legifrance::search_simple(
+                    &client,
+                    req.query.as_deref().unwrap_or(""),
+                    fond,
+                    req.page.unwrap_or(1),
+                    req.page_size.unwrap_or(10).min(100),
+                    req.sort,
+                    req.nature,
+                    req.date_start,
+                    req.date_end,
+                    Some(type_champ),
+                    req.legal_status,
+                    req.facette_extra,
+                )
+                .await
+                .map(|r| serde_json::to_value(r).unwrap_or_default()),
+            }
         }
     };
 

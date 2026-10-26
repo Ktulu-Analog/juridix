@@ -7,7 +7,7 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ---
 
-## [1.1.5] — 2026-10-23
+## [1.1.5] — 2026-10-26
 
 ### Sécurité
 
@@ -25,6 +25,8 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Ajouté
 
+- **Visionneuse juridique** : bouton « Copier » dans la bulle qui apparaît à la sélection d'un texte (à côté
+  de « Annoter »), pour copier la sélection dans le presse-papiers.
 - **Longueur maximale des réponses** (Configuration → LLM) : menu simple (Automatique, Courte,
   Standard, Longue, Très longue) qui plafonne les tokens de sortie du modèle. Utile avec une fenêtre de
   contexte de 128K : le plafond automatique (`LLM_MAX_TOKENS`, 100 000 par défaut) peut faire refuser par
@@ -79,6 +81,12 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Corrigé
 
+- **Légifrance — recherche dans les codes** : « code civil, article 1140 » (et variantes : « art. 1140 C. civ. »,
+  « 1140 code civil », « L. 1234-5 code du travail », « articles 1103, 1104 et 1105 du code civil ») retourne
+  désormais l'article demandé, ouvert directement. Les phrases libres (tous les codes ou un code donné) sont
+  cherchées dans le contenu des articles par paliers — expression exacte, puis tous les mots, puis au moins un
+  des mots — avec une note indiquant le palier retenu. « code civil » seul et les champs TITLE/TABLE gardent
+  leur comportement. Nouveaux modules `code_query.rs` / `code_search.rs`.
 - **Faux sourcing dans le chat sans outils** : le prompt de l'espace « Juris » annonce un accès à Légifrance
   et Judilibre via MCP. Quand aucun serveur MCP n'est actif, le modèle jouait cet accès (« Texte officiel
   (à jour)… Source : Légifrance, version consolidée au… ») en citant de mémoire, parfois à tort. Un rappel

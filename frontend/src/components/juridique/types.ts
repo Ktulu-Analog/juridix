@@ -155,7 +155,17 @@ export interface SearchResult {
   dossiersLegislatifs?: DossierLegislatifRef[];
 }
 
+/** Méta-informations d'une recherche dans les codes (article par numéro / plein texte). */
+export interface RechercheCodeMeta {
+  mode: 'article' | 'texte';
+  code?: string | null;
+  /** Palier plein texte retenu ; à renvoyer (`recherche_palier`) pour les pages suivantes. */
+  palier?: 'exacte' | 'tous_les_mots' | 'un_des_mots' | null;
+  note?: string | null;
+}
+
 export interface SearchResponse {
+  recherche?: RechercheCodeMeta;
   total?: number;
   totalResultNumber?: number;
   results?: SearchResult[];

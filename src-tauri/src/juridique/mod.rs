@@ -19,6 +19,8 @@
 // ============================================================================
 
 pub mod client;
+pub mod code_query;
+pub mod code_search;
 pub mod judilibre;
 pub mod legifrance;
 pub mod routes;

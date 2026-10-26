@@ -312,6 +312,49 @@ static COMPILED_CODES: Lazy<Vec<CompiledCode>> = Lazy::new(|| {
         .collect()
 });
 
+struct AnywhereCode {
+    nom: &'static str,
+    /// Alias entouré de frontières non alphanumériques, n'importe où dans le texte.
+    re: Regex,
+}
+
+static ANYWHERE_CODES: Lazy<Vec<AnywhereCode>> = Lazy::new(|| {
+    CODES
+        .iter()
+        .map(|c| {
+            let mut aliases: Vec<&str> = c.aliases.to_vec();
+            aliases.sort_by_key(|a| std::cmp::Reverse(a.len()));
+            let alts = aliases
+                .iter()
+                .map(|a| alias_pattern(a))
+                .collect::<Vec<_>>()
+                .join("|");
+            AnywhereCode {
+                nom: c.nom,
+                re: Regex::new(&format!(r"(?:^|[^a-z0-9])({alts})(?:$|[^a-z0-9])"))
+                    .expect("regex code n'importe où"),
+            }
+        })
+        .collect()
+});
+
+/// Premier code désigné n'importe où dans un texte **déjà passé par `fold`**
+/// (« responsabilite du fait des choses code civil » → Code civil).
+///
+/// Retourne `(intitulé officiel, début, fin)` ; positions en octets dans le
+/// texte replié, bornes de l'alias lui-même. En cas de plusieurs codes, le
+/// premier cité l'emporte (à égalité de position, l'alias le plus long).
+pub(crate) fn find_code_name(folded: &str) -> Option<(&'static str, usize, usize)> {
+    ANYWHERE_CODES
+        .iter()
+        .filter_map(|c| {
+            c.re.captures(folded)
+                .and_then(|cap| cap.get(1))
+                .map(|m| (c.nom, m.start(), m.end()))
+        })
+        .min_by_key(|&(_, s, e)| (s, std::cmp::Reverse(e - s)))
+}
+
 /// Après le numéro : le texte visé n'est PAS un code (loi, décret, Constitution,
 /// convention, règlement…) → la référence est écartée, sans badge.
 static RE_NON_CODE: Lazy<Regex> = Lazy::new(|| {
@@ -1460,7 +1503,7 @@ impl<L: ArticleLookup> ArticleLookup for CachedLookup<L> {
 
 // ── Analyse des réponses Légifrance ───────────────────────────────────────────
 
-fn strip_tags(s: &str) -> String {
+pub(crate) fn strip_tags(s: &str) -> String {
     static RE_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]*>").expect("regex tag"));
     RE_TAG.replace_all(s, "").trim().to_string()
 }
