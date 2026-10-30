@@ -12,6 +12,7 @@
 // ============================================================================
 
 
+import { getDroitADate } from '../utils/droitADate';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type React from 'react';
 import { API_BASE } from '../constants';
@@ -190,6 +191,8 @@ export function useChatStream(
           stream: true,
           space_id: opts.spaceId ?? null,
           mcp_servers: opts.mcpServers || [],
+          // « Droit applicable au » : date des faits fixée par l'utilisateur (absente = droit actuel).
+          ...(getDroitADate() ? { date_applicable: getDroitADate() } : {}),
           ...(opts.collectionId ? { collection_id: opts.collectionId } : {}),
           ...((opts.maxTokens ?? readLlmMaxTokens()) ? { max_tokens: opts.maxTokens ?? readLlmMaxTokens() } : {}),
         }),
@@ -281,11 +284,15 @@ export function useChatStream(
 
 // ============================================================================
 // useDraggable — rend un panneau flottant déplaçable à la souris/au tactile
-// via une « poignée » (ex : son header). Le panneau garde sa position par
-// défaut (CSS right/bottom) tant que l'utilisateur ne l'a pas encore
-// déplacé ; au premier drag, on bascule sur un positionnement libre
-// (left/top en pixels), borné aux limites de la fenêtre.
+// via une « poignée » (ex : son header) ET redimensionnable par ses bords et
+// ses coins. Le panneau garde sa position par défaut (CSS right/bottom) tant
+// que l'utilisateur ne l'a pas touché ; au premier déplacement ou
+// redimensionnement, on bascule sur un positionnement libre (left/top en
+// pixels), borné aux limites de la fenêtre. La taille choisie est mémorisée
+// (localStorage) ; la position, non.
 // ============================================================================
+export type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
 export interface UseDraggableResult {
   /** À attacher à l'élément flottant (ex: la div .chat-overlay). */
   panelRef: React.RefObject<HTMLDivElement>;
@@ -295,18 +302,50 @@ export interface UseDraggableResult {
     onTouchStart: (e: React.TouchEvent) => void;
     style: React.CSSProperties;
   };
-  /** Style à fusionner sur l'élément flottant (position libre une fois déplacé). */
+  /** Gestionnaires d'une poignée de redimensionnement (bord ou coin). */
+  resizeProps: (edge: ResizeEdge) => {
+    onMouseDown: (e: React.MouseEvent) => void;
+    onTouchStart: (e: React.TouchEvent) => void;
+  };
+  /** Style à fusionner sur l'élément flottant (position et taille libres une fois modifiées). */
   panelStyle: React.CSSProperties;
-  /** Remet le panneau à sa position CSS par défaut. */
+  /** Remet le panneau à sa position et à sa taille par défaut. */
   resetPosition: () => void;
+  /** Vrai pendant un déplacement ou un redimensionnement. */
   dragging: boolean;
+}
+
+const OVERLAY_MIN_W = 380;
+const OVERLAY_MIN_H = 320;
+const OVERLAY_MARGIN = 8;
+const OVERLAY_SIZE_KEY = 'juridix.chatOverlaySize';
+
+/** Taille mémorisée, si elle existe et tient encore dans la fenêtre. */
+function loadOverlaySize(): { w: number; h: number } | null {
+  try {
+    const raw = localStorage.getItem(OVERLAY_SIZE_KEY);
+    if (!raw) return null;
+    const { w, h } = JSON.parse(raw) as { w: unknown; h: unknown };
+    if (typeof w !== 'number' || typeof h !== 'number') return null;
+    return {
+      w: Math.min(Math.max(OVERLAY_MIN_W, w), Math.max(OVERLAY_MIN_W, window.innerWidth - 2 * OVERLAY_MARGIN)),
+      h: Math.min(Math.max(OVERLAY_MIN_H, h), Math.max(OVERLAY_MIN_H, window.innerHeight - 2 * OVERLAY_MARGIN)),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function useDraggable(): UseDraggableResult {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(loadOverlaySize);
   const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const resizeState = useRef<{ edge: ResizeEdge; x: number; y: number; rect: DOMRect } | null>(null);
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
 
   const clampToViewport = useCallback((left: number, top: number) => {
     const el = panelRef.current;
@@ -336,26 +375,78 @@ export function useDraggable(): UseDraggableResult {
     setDragging(false);
   }, []);
 
+  const startResize = useCallback((edge: ResizeEdge, clientX: number, clientY: number) => {
+    const el = panelRef.current;
+    if (!el) return;
+    resizeState.current = { edge, x: clientX, y: clientY, rect: el.getBoundingClientRect() };
+    setResizing(true);
+  }, []);
+
+  const moveResize = useCallback((clientX: number, clientY: number) => {
+    const st = resizeState.current;
+    if (!st) return;
+    const { edge, rect } = st;
+    const dx = clientX - st.x;
+    const dy = clientY - st.y;
+    const maxW = window.innerWidth - 2 * OVERLAY_MARGIN;
+    const maxH = window.innerHeight - 2 * OVERLAY_MARGIN;
+    let left = rect.left;
+    let top = rect.top;
+    let w = rect.width;
+    let h = rect.height;
+    // Le bord opposé à celui que l'on tire reste fixe.
+    if (edge.includes('e')) w = rect.width + dx;
+    if (edge.includes('w')) w = rect.width - dx;
+    if (edge.includes('s')) h = rect.height + dy;
+    if (edge.includes('n')) h = rect.height - dy;
+    w = Math.min(Math.max(OVERLAY_MIN_W, w), maxW);
+    h = Math.min(Math.max(OVERLAY_MIN_H, h), maxH);
+    if (edge.includes('w')) left = rect.right - w;
+    if (edge.includes('n')) top = rect.bottom - h;
+    left = Math.min(Math.max(OVERLAY_MARGIN, left), window.innerWidth - w - OVERLAY_MARGIN);
+    top = Math.min(Math.max(OVERLAY_MARGIN, top), window.innerHeight - h - OVERLAY_MARGIN);
+    setPos({ left, top });
+    setSize({ w, h });
+  }, []);
+
+  const endResize = useCallback(() => {
+    resizeState.current = null;
+    setResizing(false);
+    const sz = sizeRef.current;
+    if (sz) {
+      try { localStorage.setItem(OVERLAY_SIZE_KEY, JSON.stringify(sz)); } catch { /* stockage indisponible */ }
+    }
+  }, []);
+
+  const active = dragging || resizing;
   useEffect(() => {
-    if (!dragging) return;
-    const onMouseMove = (e: MouseEvent) => moveDrag(e.clientX, e.clientY);
-    const onMouseUp = () => endDrag();
+    if (!active) return;
+    const onMouseMove = (e: MouseEvent) => {
+      if (dragState.current) moveDrag(e.clientX, e.clientY);
+      else moveResize(e.clientX, e.clientY);
+    };
+    const onEnd = () => {
+      if (dragState.current) endDrag();
+      else endResize();
+    };
     const onTouchMove = (e: TouchEvent) => {
       const t = e.touches[0];
-      if (t) { moveDrag(t.clientX, t.clientY); e.preventDefault(); }
+      if (!t) return;
+      if (dragState.current) moveDrag(t.clientX, t.clientY);
+      else moveResize(t.clientX, t.clientY);
+      e.preventDefault();
     };
-    const onTouchEnd = () => endDrag();
     window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('mouseup', onEnd);
     window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchend', onEnd);
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mouseup', onEnd);
       window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchend', onEnd);
     };
-  }, [dragging, moveDrag, endDrag]);
+  }, [active, moveDrag, moveResize, endDrag, endResize]);
 
   // Si la fenêtre est redimensionnée, on recadre la position pour rester visible.
   useEffect(() => {
@@ -377,11 +468,32 @@ export function useDraggable(): UseDraggableResult {
     startDrag(t.clientX, t.clientY);
   }, [startDrag]);
 
-  const resetPosition = useCallback(() => setPos(null), []);
+  const resizeProps = useCallback((edge: ResizeEdge) => ({
+    onMouseDown: (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startResize(edge, e.clientX, e.clientY);
+    },
+    onTouchStart: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      e.stopPropagation();
+      startResize(edge, t.clientX, t.clientY);
+    },
+  }), [startResize]);
 
-  const panelStyle: React.CSSProperties = pos
-    ? { left: pos.left, top: pos.top, right: 'auto', bottom: 'auto' }
-    : {};
+  const resetPosition = useCallback(() => {
+    setPos(null);
+    setSize(null);
+    try { localStorage.removeItem(OVERLAY_SIZE_KEY); } catch { /* stockage indisponible */ }
+  }, []);
+
+  const panelStyle: React.CSSProperties = {
+    ...(pos ? { left: pos.left, top: pos.top, right: 'auto', bottom: 'auto' } : {}),
+    // Taille choisie : elle remplace la taille CSS par défaut (et ses plafonds).
+    ...(size ? { width: size.w, height: size.h, maxWidth: 'none', maxHeight: 'none' } : {}),
+  };
 
   const handleProps = {
     onMouseDown,
@@ -389,5 +501,5 @@ export function useDraggable(): UseDraggableResult {
     style: { cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none' as const },
   };
 
-  return { panelRef, handleProps, panelStyle, resetPosition, dragging };
+  return { panelRef, handleProps, resizeProps, panelStyle, resetPosition, dragging: active };
 }

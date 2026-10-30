@@ -25,7 +25,7 @@
 import {
   stripHtml, toHtmlString, sanitizeHtml, metaHtml, formatLegiDate,
   resolvePisteAssetUrl, linkifyLegifranceUrls, injectCitationLinks,
-  renderArticleVersionsBlock, renderArticlesList, renderSections,
+  renderArticleVersionsBlock, renderArticlesList, renderDroitADateBanner, renderSections,
   renderArticleHistoriqueSection, renderArticleModificationsSection,
 } from './html-helpers';
 import type { ViewedContent } from './types';
@@ -94,7 +94,7 @@ export function extractArticleContent(obj: Record<string, unknown>, titre: strin
       format: 'html',
       body: [
         `<h1 class="jur-doc-h1">${stripHtml(titre)}</h1>`,
-        breadcrumb, meta, versionsHtml, body, nota,
+        breadcrumb, meta, renderDroitADateBanner(article, id), versionsHtml, body, nota,
         modificationsHtml, historiqueHtml,
       ].filter(Boolean).join('\n'),
     };

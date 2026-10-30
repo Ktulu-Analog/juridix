@@ -311,8 +311,24 @@ hors chat, aux fonds Légifrance et JUDILIBRE :
     documents fournis au modèle (✅ retrouvé, ⚠️ proche), sans verdict négatif : un passage absent des
     documents peut provenir d'un résultat d'outil ou d'un extrait dont le texte n'est pas conservé.
 
-  Non couverts pour l'instant : les décisions du Conseil d'État et des juridictions administratives, les
-  décisions citées uniquement par leur ECLI, et les arrêtés et circulaires (ancrage seul).
+  - les **décisions citées par leur ECLI**, du **Conseil d'État** et des **cours et tribunaux administratifs**
+    (numéro de requête, recherchées dans la jurisprudence administrative de Légifrance par le champ « numéro de
+    décision » : la décision n'est retenue que si la juridiction, le numéro — et, pour un ECLI, la date que
+    celui-ci porte — du titre du résultat correspondent ; la lecture de la décision, quand l'API l'accepte,
+    doit confirmer et ne peut que l'écarter), et des **cours d'appel** (numéro de RG, Judilibre).
+    Un numéro de RG se répète d'une cour à l'autre : l'arrêt n'est retenu que si la date citée le désigne, ou si
+    le siège cité (appliqué comme filtre `location` de Judilibre) le désigne, sinon ❓. Un ECLI du Conseil constitutionnel, de la CJUE ou d'une juridiction non interrogée est
+    signalé ⚪ (non vérifiable), jamais ✅.
+
+  Non couverts pour l'instant : les arrêtés et circulaires (ancrage seul).
+
+  **Fiche d'une décision.** Le bouton ⛓ d'une décision vérifiée ouvre sa fiche : juridiction et niveau (juge du
+  fond ou Cour de cassation), puis les rapprochements que l'API fournit — décision attaquée (chaînage arrière),
+  décision suivante (chaînage avant), rapprochements de jurisprudence (Judilibre), liens typés (Légifrance) —
+  chacun avec sa provenance (base et champ), et sa position dans le temps (antérieure / postérieure) calculée
+  d'après les dates. Ce que les API ne fournissent pas est dit : les décisions qui citent celle-ci (« cité par »)
+  et les revirements de jurisprudence ne sont fournis ni par Judilibre ni par Légifrance ; l'absence d'un
+  rapprochement ne prouve donc pas qu'il n'existe pas.
 
 ## Veille juridique
 

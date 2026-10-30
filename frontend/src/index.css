@@ -10,6 +10,7 @@
   --text-tertiary:   #999999;
   --border-light:    rgba(0,0,0,0.08);
   --border-medium:   rgba(0,0,0,0.16);
+  --border-strong:   rgba(0,0,0,0.5);   /* contour des panneaux flottants */
 
   --green-light:     #f0f0f0;
   --green-mid:       #333333;
@@ -52,6 +53,7 @@
     --text-tertiary:   #666666;
     --border-light:    rgba(255,255,255,0.07);
     --border-medium:   rgba(255,255,255,0.14);
+    --border-strong:   rgba(255,255,255,0.45);
     --green-light:     #2a2a2a;
     --green-dark:      #dddddd;
     --green-deep:      #f0f0f0;

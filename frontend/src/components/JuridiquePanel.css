@@ -4211,3 +4211,8 @@ mark.jur-ann--flash {
   padding: 6px 8px;
 }
 .jur-winnow-preview { color: var(--text-tertiary); font-style: italic; }
+
+/* Bandeau « Droit applicable au… » de la fiche article */
+.jur-date-banner { margin: 10px 0; padding: 8px 12px; border-radius: 6px; font-size: 13px; line-height: 1.4; border: 1px solid transparent; }
+.jur-date-banner--ok { background: rgba(47, 93, 158, .08); border-color: rgba(47, 93, 158, .35); color: var(--accent, #2f5d9e); }
+.jur-date-banner--warn { background: rgba(200, 120, 0, .10); border-color: rgba(200, 120, 0, .45); color: #8a5300; }

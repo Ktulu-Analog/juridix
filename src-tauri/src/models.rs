@@ -43,6 +43,10 @@ pub struct ChatRequest {
     /// Plafond de tokens de la réponse choisi dans les préférences (absent = valeur du serveur).
     #[serde(default)]
     pub max_tokens: Option<u64>,
+    /// « Droit applicable au » (AAAA-MM-JJ) : date des faits fixée par l'utilisateur.
+    /// Absente ou invalide = droit actuel.
+    #[serde(default)]
+    pub date_applicable: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

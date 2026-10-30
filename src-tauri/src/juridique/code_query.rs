@@ -411,7 +411,6 @@ pub struct Hit {
 }
 
 impl Hit {
-    #[cfg(test)]
     pub fn is_vigueur(&self) -> bool {
         self.etat.as_deref().map(str::to_uppercase).as_deref() == Some("VIGUEUR")
     }
@@ -424,7 +423,7 @@ fn as_str(v: &Value) -> Option<String> {
 /// Date d'une réponse PISTE → millisecondes. Le Swagger documente des chaînes
 /// ISO (« 2021-04-15T16:49:47.707+0000 ») ; on accepte aussi un nombre ou une
 /// chaîne numérique (millisecondes) et une date seule (« 2021-04-15 »).
-fn as_millis(v: &Value) -> Option<i64> {
+pub(crate) fn as_millis(v: &Value) -> Option<i64> {
     if let Some(n) = v.as_i64() {
         return Some(n);
     }
@@ -554,10 +553,12 @@ pub fn only_code(hits: Vec<Hit>, code: &str) -> Vec<Hit> {
 /// l'API est conservé à égalité.
 pub fn trier_hits(hits: &mut [Hit]) {
     fn rank(h: &Hit) -> u8 {
-        match h.etat.as_deref().map(str::to_uppercase).as_deref() {
-            Some("VIGUEUR") => 0,
-            Some("VIGUEUR_DIFF") => 1,
-            _ => 2,
+        if h.is_vigueur() {
+            0
+        } else if h.etat.as_deref().map(str::to_uppercase).as_deref() == Some("VIGUEUR_DIFF") {
+            1
+        } else {
+            2
         }
     }
     hits.sort_by_key(|h| {

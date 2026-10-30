@@ -7,7 +7,7 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ---
 
-## [1.1.5] — 2026-10-26
+## [1.1.5] — 2026-10-30
 
 ### Sécurité
 
@@ -25,6 +25,41 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Ajouté
 
+- **Modale de chat (assistant IA)** : redimensionnable par ses quatre bords et ses quatre coins (taille
+  minimale 380 × 320, taille mémorisée, double-clic sur l'en-tête pour revenir à la position et à la taille
+  par défaut) ; zone de saisie compactée (une ligne, barre d'outils unique : le sélecteur « Droit applicable à
+  une date » y est intégré, l'astuce « Shift+Entrée » masquée) ; contraste renforcé sur le reste de l'interface
+  (fond opaque, contour net, ombre marquée, en-tête inversé, bandeau de saisie teinté).
+- **Fiche d'une décision de justice** (`GET /api/juridique/decision/:id/fiche`, module `jurisprudence.rs`) :
+  identité, niveau (juge du fond / Cour de cassation) et rapprochements fournis par les API — décision attaquée
+  (`contested`), décision suivante (`forward`), rapprochements de jurisprudence, dates clés, visas (Judilibre) ;
+  décision attaquée et liens typés `liens` (Légifrance, `typeLien` et `sens` restitués tels quels) — chacun avec
+  sa provenance et sa chronologie (antérieure / postérieure, d'après les dates). Les « cité par » et les
+  revirements, absents des deux API, sont listés comme non fournis. Le badge d'une décision vérifiée porte un
+  bouton ⛓ qui ouvre la fiche ; `decision_id` est ajouté à chaque vérification de décision retrouvée.
+  Test réel facultatif : `live_piste_fiche`.
+- **Vérification des citations — ECLI, Conseil d'État, juridictions administratives, cours d'appel** : les
+  décisions citées par ECLI, par numéro de requête (Conseil d'État, cours et tribunaux administratifs) ou par
+  numéro de RG (cours d'appel) sont recherchées (Judilibre, jurisprudence administrative de Légifrance) et
+  reçoivent un statut visible : ✅ retrouvée (juridiction, formation, date, solution, publication, source dans
+  l'info-bulle), ⚠️ date ou chambre différente, ❓ non retrouvée (≠ inexistante), ⚪ juridiction non interrogée.
+  Une décision n'est « vérifiée » que si son numéro ou son ECLI correspond à celui cité : une décision voisine
+  renvoyée par la recherche est écartée. Fond CETAT : recherche par le champ `NUM_DEC` (les champs `NUM_AFFAIRE`
+  et `ECLI` n'y existent pas), décision reconnue par le titre du résultat (juridiction, date, numéro), lecture
+  `/consult/juri` facultative. Un RG, partagé par plusieurs cours, n'est retenu que si la date citée ou le siège
+  cité (filtre `location` de Judilibre) le désigne. Un ECLI retrouvé sous son numéro dans les sources fournies au modèle n'est plus signalé
+  « hors sources ». Nouveau module `verify_juris.rs` ; test réel `live_piste_juridictions` (ignoré par défaut).
+- **Documentation** : `docs/CHECKLIST_RELEASE.md`, `docs/MCP_PACK_SIGNATURE.md` et `docs/MCP_AUTORISATION.md`
+  (référencés par le README, le CHANGELOG et le workflow de release, mais absents).
+- **CI** : Dependabot (cargo, npm, GitHub Actions) ; l'audit des dépendances ne bloque plus les PR et ouvre
+  une issue lors de l'exécution hebdomadaire.
+- **Droit dans le temps — « Droit applicable au… »** : une date des faits peut être fixée (puce au-dessus de la zone de
+  saisie du chat, champ dans la recherche des codes). Elle est transmise au modèle (il applique le droit en vigueur à
+  cette date et dit quand il ne l'a pas vérifié), la vérification des citations indique pour chaque article cité la
+  version applicable à la date, les modifications intervenues depuis (🕘) ou son absence à cette date (🚫), et le lien
+  ouvre la version applicable. La recherche d'articles et de phrases dans les codes renvoie les versions en vigueur à
+  la date. Calcul fait par le code à partir de la liste des versions Légifrance (`articleVersions`), jamais par le
+  modèle. La date n'est pas conservée d'une session à l'autre. Nouveau module `temporal.rs`.
 - **Visionneuse juridique** : bouton « Copier » dans la bulle qui apparaît à la sélection d'un texte (à côté
   de « Annoter »), pour copier la sélection dans le presse-papiers.
 - **Longueur maximale des réponses** (Configuration → LLM) : menu simple (Automatique, Courte,
@@ -81,6 +116,32 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Corrigé
 
+- **Fiche article — versions** : sous la barre « Versions de cet article », un bloc gris affichait le texte d'une
+  AUTRE version (le plus souvent la version actuelle) au-dessus de la rédaction réellement affichée, ce qui
+  prêtait à confusion. Les pastilles de versions sont des liens de navigation : plus aucun texte n'y est inséré.
+  Les dates antérieures à 1970 s'affichent désormais (la date de début des versions d'articles de 1804 était
+  omise). Quand une date des faits est fixée, un bandeau indique si la version affichée était celle en vigueur à
+  cette date (et, sinon, invite à choisir la version applicable).
+- **Droit applicable au… — réponse du chat** : le modèle recopiait le texte renvoyé par l'outil Légifrance (la
+  version actuelle) sans tenir compte de la date des faits, la consigne de reproduction fidèle des outils
+  l'emportant sur la consigne de date. Désormais, pour les articles de code cités dans les derniers messages de
+  l'utilisateur, Juridix lit lui-même sur Légifrance la rédaction applicable à la date et la fournit au modèle comme
+  texte faisant foi ; la consigne de date est placée après celle des outils, et un rappel est ajouté à la dernière
+  question dans la charge envoyée au modèle (jamais affiché). Pour une question sans article cité, seuls la
+  consigne et le rappel s'appliquent : la vérification des citations signale alors un éventuel écart.
+- **Droit applicable au… — citations textuelles** : avec une date des faits, une citation rattachée à un article
+  est comparée à la rédaction applicable à cette date, et non plus au texte actuel (qui la faisait juger
+  « inexacte » alors qu'elle reproduisait fidèlement l'ancienne version). Cas distincts : passage retrouvé dans la
+  rédaction de la date ✅ ; passage qui ne figure que dans la version actuelle (la citation ne reflète pas le droit
+  à la date des faits) ; article non en vigueur à cette date ; rédaction à la date illisible (« non vérifiable »,
+  jamais un verdict sur le texte actuel).
+- **Pack MCP — script de signature** : le script `scripts/sign-mcp-pack-release.sh` est **supprimé**. Il signait avec un
+  commentaire « juridix-mcp-pack v0.3.4 » alors que Juridix exige le mot `version:0.3.4` : une release signée avec lui
+  aurait été refusée à l'installation. La signature d'une release du pack se fait avec `sign-mcp-pack.sh`, conservé
+  dans le seul dépôt du pack (`demeter-mcp-pack`) et partagé avec Demeter ; voir `docs/MCP_PACK_SIGNATURE.md`.
+- **Droit applicable au… (calendrier)** : la date n'est appliquée qu'à la validation (« Appliquer » / Entrée) ;
+  changer une année ou un mois ne ferme plus la fenêtre et ne relance plus la vérification des citations à
+  chaque clic. Années limitées à 1800–2200 ; vérifications simultanées plafonnées à 3.
 - **Légifrance — recherche dans les codes** : « code civil, article 1140 » (et variantes : « art. 1140 C. civ. »,
   « 1140 code civil », « L. 1234-5 code du travail », « articles 1103, 1104 et 1105 du code civil ») retourne
   désormais l'article demandé, ouvert directement. Les phrases libres (tous les codes ou un code donné) sont

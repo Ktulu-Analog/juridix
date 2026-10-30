@@ -65,6 +65,9 @@ pub struct CodeSearchRequest<'a> {
     pub legal_status: Option<Vec<String>>,
     pub date_start: Option<String>,
     pub date_end: Option<String>,
+    /// « Droit applicable au » (AAAA-MM-JJ) : versions en vigueur à cette date (fond CODE_DATE,
+    /// facette DATE_VERSION en `singleDate`). Prioritaire sur `date_start` / `date_end`.
+    pub date_applicable: Option<String>,
     /// Palier à rejouer pour les pages suivantes d'une recherche plein texte
     /// (valeur renvoyée dans `recherche.palier`).
     pub palier: Option<&'a str>,
@@ -97,8 +100,8 @@ pub async fn search_codes(
 /// juridique, comme `verify.rs`). CODE_DATE seulement quand l'utilisateur a
 /// borné une date : seul ce fond sait filtrer sur la date de version.
 fn fond_effectif(req: &CodeSearchRequest<'_>) -> SearchFond {
-    let avec_date = req.date_start.is_some() || req.date_end.is_some();
-    if matches!(req.fond, SearchFond::CodeDate) && avec_date {
+    let periode = req.date_start.is_some() || req.date_end.is_some();
+    if req.date_applicable.is_some() || (matches!(req.fond, SearchFond::CodeDate) && periode) {
         SearchFond::CodeDate
     } else {
         SearchFond::CodeEtat
@@ -145,10 +148,20 @@ fn construire(
     let mut filtres_dates = Vec::new();
     if matches!(fond, SearchFond::CodeDate) {
         if let Some(f) = fond.date_facette() {
-            filtres_dates.push(FiltreDates {
-                facette: f.to_string(),
-                start: req.date_start.clone(),
-                end: req.date_end.clone(),
+            filtres_dates.push(match &req.date_applicable {
+                // Version applicable à une date : `singleDate` (exemples officiels PISTE).
+                Some(d) => FiltreDates {
+                    facette: f.to_string(),
+                    start: None,
+                    end: None,
+                    single_date: Some(d.clone()),
+                },
+                None => FiltreDates {
+                    facette: f.to_string(),
+                    start: req.date_start.clone(),
+                    end: req.date_end.clone(),
+                    single_date: None,
+                },
             });
         }
     }
@@ -391,6 +404,7 @@ async fn search_articles(
             "mode": "article",
             "code": code,
             "articles": numeros.iter().map(|n| n.query.clone()).collect::<Vec<_>>(),
+            "date_applicable": req.date_applicable,
             "note": if notes.is_empty() { Value::Null } else { json!(notes.join(" ")) },
         },
     }))
@@ -518,6 +532,7 @@ async fn search_text(
             "code": code,
             "phrase": phrase,
             "palier": palier.correspondance.label(),
+            "date_applicable": req.date_applicable,
             "articles_affiches": n,
             "note": note_palier(&palier),
         },
@@ -749,6 +764,7 @@ mod tests {
             legal_status: None,
             date_start: None,
             date_end: None,
+            date_applicable: None,
             palier: None,
         }
     }
@@ -1030,5 +1046,36 @@ mod tests {
             .map(|f| f["facette"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(facettes, ["DATE_VERSION"]);
+    }
+
+    #[tokio::test]
+    async fn droit_applicable_au_cherche_les_versions_en_vigueur_a_la_date() {
+        let (client, st) = demarrer(false).await;
+        let mut r = req("code civil article 1140", "ALL");
+        r.date_applicable = Some("2018-05-12".into());
+        // Une période saisie par ailleurs n'est pas combinée à la date unique.
+        r.date_start = Some("2000-01-01".into());
+        let v = search_codes(&client, &r).await.unwrap().unwrap();
+        assert_eq!(ids(&v), ["LEGIARTI000032040795"]);
+        assert_eq!(v["recherche"]["date_applicable"], "2018-05-12");
+        let recu = st.recus.lock().unwrap()[0].clone();
+        assert_eq!(recu["fond"], "CODE_DATE");
+        assert_eq!(
+            recu["recherche"]["filtres"],
+            json!([{ "facette": "DATE_VERSION", "singleDate": "2018-05-12" }])
+        );
+    }
+
+    #[tokio::test]
+    async fn droit_applicable_au_sur_une_phrase_libre() {
+        let (client, st) = demarrer(false).await;
+        let mut r = req("violence code civil", "ALL");
+        r.date_applicable = Some("2018-05-12".into());
+        let v = search_codes(&client, &r).await.unwrap().unwrap();
+        // Code filtré côté Juridix (pas de facette de code sur CODE_DATE).
+        assert_eq!(ids(&v), ["LEGIARTI000032040795"]);
+        let recu = st.recus.lock().unwrap()[0].clone();
+        assert_eq!(recu["fond"], "CODE_DATE");
+        assert_eq!(recu["recherche"]["filtres"][0]["singleDate"], "2018-05-12");
     }
 }

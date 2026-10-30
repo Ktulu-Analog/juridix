@@ -1191,6 +1191,10 @@ pub struct Verification {
     /// Éléments d'identité de la source retrouvée (titre, chambre, date, solution…),
     /// affichés dans l'info-bulle.
     pub infos: Vec<String>,
+    /// Décision retrouvée : son identifiant (Judilibre ou Légifrance), qui donne accès à sa
+    /// fiche (`GET /decision/:id/fiche`) : rapprochements et provenance.
+    #[serde(default)]
+    pub decision_id: Option<String>,
     pub occurrences: Vec<Occurrence>,
     /// Données de travail, jamais sérialisées (voir `verify_ext`).
     #[serde(skip)]
@@ -1264,6 +1268,7 @@ fn base_verification(code: Option<&str>, r: &ArticleRef) -> Verification {
         existe_dans: Vec::new(),
         detail: None,
         infos: Vec::new(),
+        decision_id: None,
         occurrences: Vec::new(),
         intern: Intern {
             article_key: code.map(|c| format!("{c}|{}", r.numero_key())),
@@ -1424,6 +1429,7 @@ pub async fn build_report(
                 existe_dans: Vec::new(),
                 detail: Some("Existence non vérifiée automatiquement (texte hors code)".into()),
                 infos: Vec::new(),
+                decision_id: None,
                 occurrences: Vec::new(),
                 intern: Intern {
                     texte: t

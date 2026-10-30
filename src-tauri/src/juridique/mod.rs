@@ -22,10 +22,13 @@ pub mod client;
 pub mod code_query;
 pub mod code_search;
 pub mod judilibre;
+pub mod jurisprudence;
 pub mod legifrance;
 pub mod routes;
+pub mod temporal;
 pub mod verify;
 pub mod verify_ext;
+pub mod verify_juris;
 
 // Re-exports pour api.rs
 pub use routes::{juridique_router, HasJuridiqueState, JuridiqueState};

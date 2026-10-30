@@ -35,7 +35,9 @@ use super::{
     client::PisteClient,
     code_search,
     judilibre::{self, JudilibreExportParams, JudilibreSearchParams},
+    jurisprudence,
     legifrance::{self, FiltreValeurs, SearchFond},
+    temporal,
     verify::{self, CachedLookup, LegifranceLookup, NoLookup},
     verify_ext::{self, CachedExt, NoExt, PisteExt},
 };
@@ -162,6 +164,9 @@ pub struct RechercherRequest {
     /// suivantes (valeur `recherche.palier` de la réponse de la page 1) :
     /// « exacte » | « tous_les_mots » | « un_des_mots ».
     pub recherche_palier: Option<String>,
+    /// Fonds CODE_* — « droit applicable au » (AAAA-MM-JJ) : versions en vigueur à cette date.
+    /// Date invalide : ignorée.
+    pub date_applicable: Option<String>,
     // JUDILIBRE
     pub operator: Option<String>,
     pub field: Option<Vec<String>>,
@@ -530,6 +535,11 @@ pub async fn rechercher<S: HasJuridiqueState>(
                         legal_status: req.legal_status.clone(),
                         date_start: req.date_start.clone(),
                         date_end: req.date_end.clone(),
+                        date_applicable: req
+                            .date_applicable
+                            .as_deref()
+                            .and_then(temporal::parse_date)
+                            .map(|d| d.format("%Y-%m-%d").to_string()),
                         palier: req.recherche_palier.as_deref(),
                     },
                 )
@@ -1072,6 +1082,55 @@ pub async fn get_decision<S: HasJuridiqueState>(
             Json(v).into_response()
         }
         Err(e) => gateway_err("get_decision", &id, e),
+    }
+}
+
+/// GET /decision/:id/fiche
+///
+/// Fiche d'une décision : identité, niveau (juge du fond / Cour de cassation) et
+/// rapprochements fournis par l'API (décision attaquée, décision suivante, rapprochements
+/// de jurisprudence, liens Légifrance), chacun avec sa provenance. Voir `jurisprudence.rs`.
+///
+/// L'identifiant désigne une décision Judilibre ou, s'il commence par `JURITEXT`,
+/// `CETATEXT`, `CONSTEXT` ou `JUFITEXT`, une décision de Légifrance.
+pub async fn get_decision_fiche<S: HasJuridiqueState>(
+    State(state): State<Arc<S>>,
+    Path(id): Path<String>,
+) -> Response {
+    // Un identifiant est alphanumérique : rien d'autre ne part vers l'API.
+    if id.is_empty() || id.len() > 64 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return (StatusCode::BAD_REQUEST, "identifiant de décision invalide").into_response();
+    }
+    let js = state.juridique_state();
+    let client = match js.client_async().await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let key = format!("fiche:{id}");
+    if let Some(v) = cache_get(&js.cache, &key, TTL_DOCUMENT).await {
+        return Json(v).into_response();
+    }
+    let fiche = if jurisprudence::is_legifrance_id(&id) {
+        match legifrance::get_juri(&client, &id).await {
+            Ok(v) => jurisprudence::fiche_legifrance(&id, &v),
+            Err(e) => return gateway_err("get_decision_fiche", &id, e),
+        }
+    } else {
+        match judilibre::get_decision(&client, &id, true, None, None).await {
+            Ok(v) => jurisprudence::fiche_judilibre(&v),
+            Err(e) => return gateway_err("get_decision_fiche", &id, e),
+        }
+    };
+    match fiche.and_then(|f| serde_json::to_value(f).ok()) {
+        Some(v) => {
+            cache_set(&js.cache, key, v.clone()).await;
+            Json(v).into_response()
+        }
+        None => (
+            StatusCode::BAD_GATEWAY,
+            "réponse inattendue de la source : fiche indisponible",
+        )
+            .into_response(),
     }
 }
 
@@ -2535,6 +2594,58 @@ pub struct VerifierCitationsRequest {
     /// que désignent ses citations quand la réponse n'en cite aucun (« Cite l'article 1240… »).
     #[serde(default)]
     pub contexte: Option<String>,
+    /// « Droit applicable au » (AAAA-MM-JJ) : date des faits. Quand elle est fournie, chaque
+    /// article de code vérifié reçoit en plus la version applicable à cette date et les
+    /// modifications intervenues depuis (`droit_a_date` dans la réponse). Date invalide : ignorée.
+    #[serde(default)]
+    pub date_applicable: Option<String>,
+}
+
+/// Plafond d'articles examinés pour le droit à date par message (un appel Légifrance chacun).
+pub const MAX_DROIT_A_DATE: usize = 12;
+/// Appels simultanés pour le droit à date.
+const DROIT_A_DATE_CONCURRENCY: usize = 4;
+
+/// Droit applicable à `date` pour chaque article de code identifié par la vérification.
+async fn droit_a_date_pour(
+    client: &PisteClient,
+    report: &verify::Report,
+    date: chrono::NaiveDate,
+    today: chrono::NaiveDate,
+) -> Vec<temporal::DroitADate> {
+    use futures::StreamExt;
+    // Tâches possédées (pas de références dans le flux : évite les soucis de durée de vie).
+    let mut vus: Vec<String> = Vec::new();
+    let mut taches: Vec<(String, Option<String>, String, String)> = Vec::new();
+    for v in &report.verifications {
+        if v.kind != verify::Kind::Article {
+            continue;
+        }
+        let Some(id) = v.intern.article_id.clone() else {
+            continue;
+        };
+        if vus.contains(&id) || taches.len() >= MAX_DROIT_A_DATE {
+            continue;
+        }
+        vus.push(id.clone());
+        taches.push((v.reference.clone(), v.code.clone(), v.numero.clone(), id));
+    }
+    futures::stream::iter(taches)
+        .map(|(reference, code, numero, id)| async move {
+            temporal::droit_a_date(
+                client,
+                &id,
+                &reference,
+                code.as_deref(),
+                &numero,
+                date,
+                today,
+            )
+            .await
+        })
+        .buffered(DROIT_A_DATE_CONCURRENCY)
+        .collect()
+        .await
 }
 
 /// Part de la question analysée pour y chercher un article de code (le début suffit : on
@@ -2651,7 +2762,12 @@ pub async fn verifier_citations<S: HasJuridiqueState>(
         None
     };
 
-    let report = match client {
+    let date_applicable = req
+        .date_applicable
+        .as_deref()
+        .and_then(temporal::parse_date);
+    let today_date = chrono::Local::now().date_naive();
+    let (report, droit_a_date) = match client {
         None => {
             let mut report = verify::build_report(
                 &NoLookup,
@@ -2670,8 +2786,8 @@ pub async fn verifier_citations<S: HasJuridiqueState>(
                 sources,
                 context_article: None,
             };
-            verify_ext::extend_report(&NoExt, ext_input, &mut report).await;
-            report
+            verify_ext::extend_report_at(&NoExt, ext_input, &mut report, date_applicable).await;
+            (report, Vec::new())
         }
         Some(client) => {
             let cache = state.juridique_state().cache.clone();
@@ -2702,12 +2818,21 @@ pub async fn verifier_citations<S: HasJuridiqueState>(
                 sources,
                 context_article: context_article.as_ref(),
             };
-            let ext_lookup = CachedExt::new(PisteExt::new(client), cache, today.clone());
-            verify_ext::extend_report(&ext_lookup, ext_input, &mut report).await;
-            report
+            let ext_lookup = CachedExt::new(PisteExt::new(client.clone()), cache, today.clone());
+            verify_ext::extend_report_at(&ext_lookup, ext_input, &mut report, date_applicable)
+                .await;
+            let droit = match date_applicable {
+                Some(d) => droit_a_date_pour(&client, &report, d, today_date).await,
+                None => Vec::new(),
+            };
+            (report, droit)
         }
     };
-    Json(report).into_response()
+    let mut body = serde_json::to_value(&report).unwrap_or_default();
+    if !droit_a_date.is_empty() {
+        body["droit_a_date"] = serde_json::to_value(&droit_a_date).unwrap_or_default();
+    }
+    Json(body).into_response()
 }
 
 // ── Routeur ───────────────────────────────────────────────────────────────────
@@ -2798,6 +2923,7 @@ where
         .route("/dates-without-jo", get(dates_without_jo::<S>))
         // ── JUDILIBRE — décisions
         .route("/decision/:id", get(get_decision::<S>))
+        .route("/decision/:id/fiche", get(get_decision_fiche::<S>))
         // ── JUDILIBRE — taxonomies
         .route("/taxonomie/:type", get(get_taxonomie::<S>))
         // ── JUDILIBRE — export par lots

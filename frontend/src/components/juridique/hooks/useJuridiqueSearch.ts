@@ -36,6 +36,7 @@ import {
   FONDS_SANS_RECHERCHE_TEXTUELLE,
   JURISDICTIONS_JUDILIBRE, PUBLICATIONS_JUDILIBRE, SOLUTIONS_JUDILIBRE,
 } from '../constants';
+import { getDroitADate } from '../../../utils/droitADate';
 import type { SearchResult, SearchResponse, RechercheCodeMeta, Source, Fond } from '../types';
 
 const PAGE_SIZE = 10;
@@ -340,6 +341,8 @@ export function useJuridiqueSearch(facetsOpen: boolean) {
       body.sort = sort;
       // Pages suivantes d'une recherche plein texte dans les codes : rejouer le palier de la page 1.
       if (targetPage > 1 && rechercheMeta?.palier) body.recherche_palier = rechercheMeta.palier;
+      // Codes : versions en vigueur à la date des faits (« droit applicable au »).
+      if ((fond === 'CODE_ETAT' || fond === 'CODE_DATE') && getDroitADate()) body.date_applicable = getDroitADate();
       if (nature.length) body.nature = nature;
       if (legalStatus.length) body.legal_status = legalStatus;
       if (fond === 'CNIL') {

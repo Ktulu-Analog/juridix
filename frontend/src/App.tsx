@@ -32,6 +32,7 @@ import type { Settings } from './components/Modals';
 import { PromptsEditorModal } from './components/PromptsEditorModal';
 import { IngestionModal } from './components/IngestionModal';
 import { JuridiquePanel } from './components/JuridiquePanel';
+import { DroitADateControl } from './components/DroitADateControl';
 import { API_BASE, IMAGE_MIME, IMAGE_EXTS, DOC_EXTS, MIME_TO_EXT, HISTORY_ITEMS } from './constants';
 import { getSecretStorageIssue, loadSecretsIntoSettings, onSecretStorageIssue, persistSecrets, stripSecrets } from './secureStorage';
 import { McpAuthDialog } from './components/McpAuthDialog';
@@ -283,7 +284,7 @@ function AppInner() {
   const [chatOverlayOpen, setChatOverlayOpen] = useState(false);
 
   // Permet de faire glisser l'overlay de chat à l'écran via son header.
-  const { panelRef: chatOverlayRef, handleProps: chatOverlayDragHandle, panelStyle: chatOverlayDragStyle, resetPosition: resetChatOverlayPosition, dragging: chatOverlayDragging } = useDraggable();
+  const { panelRef: chatOverlayRef, handleProps: chatOverlayDragHandle, resizeProps: chatOverlayResizeProps, panelStyle: chatOverlayDragStyle, resetPosition: resetChatOverlayPosition, dragging: chatOverlayDragging } = useDraggable();
 
   const openChatOverlay = useCallback(() => {
     setChatOverlayOpen(true);
@@ -1127,6 +1128,7 @@ function AppInner() {
                       ))}
                     </div>
                   )}
+                  <DroitADateControl />
                   <textarea ref={inputRef} className="chat-input"
                     placeholder={extracting ? 'Extraction en cours…' : attachments.length === 1 ? `Message à propos de "${attachments[0].filename}"…` : attachments.length > 1 ? `Message à propos de ${attachments.length} documents…` : configured ? `Posez votre question — ${(activeSpace as { label?: string })?.label || 'Assistant RH'}…` : "⚙ Configurez l'endpoint d'abord…"}
                     onChange={autoResize} onKeyDown={handleKey} onPaste={handlePaste} disabled={loading || extracting} rows={3}
@@ -1197,7 +1199,7 @@ function AppInner() {
                     className="chat-overlay-header"
                     {...chatOverlayDragHandle}
                     onDoubleClick={resetChatOverlayPosition}
-                    title="Glisser pour déplacer · double-clic pour réinitialiser la position"
+                    title="Glisser pour déplacer · double-clic pour réinitialiser la position et la taille"
                   >
                     <span className="chat-overlay-title">
                       {artifactsOpen && activeArtifacts.length > 0 ? '✦ Artéfacts' : '💬 Assistant IA'}
@@ -1209,6 +1211,11 @@ function AppInner() {
                       <button className="jur-btn-icon jur-btn-icon--xs" title="Fermer" onClick={() => setChatOverlayOpen(false)}>✕</button>
                     </div>
                   </div>
+
+                  {/* Poignées de redimensionnement : 4 bords et 4 coins. */}
+                  {(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const).map(edge => (
+                    <div key={edge} className={`chat-overlay-resize chat-overlay-resize--${edge}`} {...chatOverlayResizeProps(edge)} />
+                  ))}
 
                   {/* Les Artéfacts remplacent le contenu de l'overlay (pas de
                      5ᵉ zone séparée) quand une réponse en contient. ────────── */}
@@ -1268,7 +1275,7 @@ function AppInner() {
                           )}
                           <textarea ref={inputRef} className="chat-input"
                             placeholder={extracting ? 'Extraction en cours…' : attachments.length === 1 ? `Message à propos de "${attachments[0].filename}"…` : attachments.length > 1 ? `Message à propos de ${attachments.length} documents…` : configured ? 'Posez votre question — Assistant juridique…' : "⚙ Configurez l'endpoint d'abord…"}
-                            onChange={autoResize} onKeyDown={handleKey} onPaste={handlePaste} disabled={loading || extracting} rows={2}
+                            onChange={autoResize} onKeyDown={handleKey} onPaste={handlePaste} disabled={loading || extracting} rows={1}
                           />
                           <div className="input-toolbar">
                             <button className={`attach-btn ${extracting ? 'attach-btn--loading' : ''} ${attachments.length ? 'attach-btn--active' : ''}`} onClick={() => fileInputRef.current?.click()} disabled={loading || extracting}>
@@ -1295,6 +1302,7 @@ function AppInner() {
                                 </>}
                               />
                             )}
+                            <DroitADateControl />
                             <span className="input-hint">Shift+Entrée</span>
                             <button className="send-btn" onClick={() => sendMessage()} disabled={loading || extracting || (!(inputRef.current?.value?.trim()) && !attachments.length)}>
                               {loading ? <span className="spinner" /> : <svg viewBox="0 0 16 16"><path d="M2 8l12-6-4 6 4 6z"/></svg>}

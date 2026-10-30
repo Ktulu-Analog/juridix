@@ -12,6 +12,8 @@
 // ============================================================================
 
 import TurndownService from 'turndown';
+import { getDroitADate } from '../../../utils/droitADate';
+import { bandeauDroitADate } from './version-dates';
 
 // ── Dates ─────────────────────────────────────────────────────────────────────
 
@@ -30,9 +32,11 @@ export function formatLegiDate(raw: unknown): string {
   if (!raw) return '';
   const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'long', year: 'numeric' };
 
+  // `n !== 0` et non `n > 0` : les versions antérieures à 1970 (codes de 1804, etc.) ont des
+  // millisecondes négatives ; les écarter faisait disparaître la date de début des pastilles de versions.
   const n = Number(raw);
-  if (!isNaN(n) && n > 0) {
-    const ms = n < 100_000_000_000 ? n * 1000 : n;
+  if (!isNaN(n) && n !== 0) {
+    const ms = Math.abs(n) < 100_000_000_000 ? n * 1000 : n;
     if (ms < 4_000_000_000_000) {
       const d = new Date(ms);
       if (!isNaN(d.getTime())) return d.toLocaleDateString('fr-FR', opts);
@@ -556,10 +560,14 @@ export async function resolveInlineCitations(
   // (un même article peut être cité plusieurs fois dans un texte).
   const seen = new Set<string>();
   const ids: string[] = [];
-  const re = /data-cite-id="([^"]+)"/g;
+  // Les pastilles de versions (`jur-article-version`) sont des liens de NAVIGATION, pas des citations
+  // dans le texte : y insérer le texte de la version visée faisait apparaître, sous la barre de
+  // versions, un bloc gris avec le texte d'une AUTRE version que celle affichée.
+  const re = /<a\b([^>]*)\bdata-cite-id="([^"]+)"([^>]*)>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
-    const id = m[1];
+    if (/jur-article-version/.test(m[1] + m[3])) continue;
+    const id = m[2];
     if (ARTICLE_ID_RE.test(id) && !seen.has(id)) {
       seen.add(id);
       ids.push(id);
@@ -604,11 +612,27 @@ export async function resolveInlineCitations(
     /(<a\b[^>]*\bdata-cite-id="([^"]+)"[^>]*>.*?<\/a>)/g,
     (fullMatch, anchorHtml: string, id: string) => {
       const txt = resolved.get(id);
+      if (/jur-article-version/.test(anchorHtml)) return fullMatch; // pastille de version : navigation
       if (!txt || inserted.has(id)) return fullMatch;
       inserted.add(id);
       return `${anchorHtml}<div class="jur-cited-article">${txt}</div>`;
     },
   );
+}
+
+/**
+ * Bandeau « Droit applicable au… » de la fiche article : indique si la version AFFICHÉE était
+ * celle en vigueur à la date des faits fixée par l'utilisateur (vide sans date, ou si les dates de
+ * la version sont inconnues). Calculé à l'ouverture du document.
+ */
+export function renderDroitADateBanner(a: Record<string, unknown>, currentId: string): string {
+  const date = getDroitADate();
+  if (!date) return '';
+  const versions = Array.isArray(a.articleVersions) ? a.articleVersions as Array<Record<string, unknown>> : [];
+  const v = versions.find((x) => stripHtml(toHtmlString(x.id)) === currentId);
+  const b = bandeauDroitADate(date, v?.dateDebut ?? a.dateDebut, v?.dateFin ?? a.dateFin);
+  if (!b) return '';
+  return `<div class="jur-date-banner ${b.applicable ? 'jur-date-banner--ok' : 'jur-date-banner--warn'}">${b.applicable ? '⚖️' : '⚠️'} ${b.message}</div>`;
 }
 
 // ── Renderers de sections / articles ─────────────────────────────────────────

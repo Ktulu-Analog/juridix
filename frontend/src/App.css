@@ -1829,12 +1829,16 @@
   width: 880px;
   max-width: calc(100vw - 44px);
   height: min(720px, calc(100% - 110px));
+  min-width: 380px;
+  min-height: 320px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-light);
+  /* Contraste : fond opaque, contour net et ombre portée marquée pour que le panneau
+     se détache nettement du document ou de la liste qu'il recouvre. */
+  background: var(--bg-primary);
+  border: 2px solid var(--border-strong);
   border-radius: var(--radius-lg, 14px);
-  box-shadow: var(--shadow-lg, 0 12px 36px rgba(0,0,0,0.22));
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42), 0 8px 20px rgba(0, 0, 0, 0.26);
   overflow: hidden;
   animation: chat-overlay-in 0.16s ease-out;
 }
@@ -1855,11 +1859,17 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px 10px 14px;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-strong);
   flex-shrink: 0;
-  background: var(--bg-primary);
+  /* En-tête inversé (sombre en thème clair, clair en thème sombre) : il identifie le panneau. */
+  background: var(--text-primary);
+  color: var(--bg-primary);
   cursor: grab;
 }
+.chat-overlay-header .jur-btn-icon,
+.chat-overlay-header .jur-btn-link { color: var(--bg-primary); }
+.chat-overlay-header .jur-btn-icon:hover,
+.chat-overlay-header .jur-btn-link:hover { background: rgba(128, 128, 128, 0.35); color: var(--bg-primary); }
 
 .chat-overlay--dragging .chat-overlay-header {
   cursor: grabbing;
@@ -1873,19 +1883,68 @@
 .chat-overlay-title {
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--bg-primary);
 }
 
 .chat-overlay-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  position: relative;
+  z-index: 6; /* au-dessus des poignées de redimensionnement */
 }
 
 .chat-area--overlay {
   padding: 12px;
   gap: 10px;
+  background: var(--bg-primary);
 }
+
+/* Poignées de redimensionnement : 4 bords et 4 coins. */
+.chat-overlay-resize { position: absolute; z-index: 5; touch-action: none; }
+.chat-overlay-resize--n,  .chat-overlay-resize--s  { left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.chat-overlay-resize--e,  .chat-overlay-resize--w  { top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.chat-overlay-resize--n  { top: 0; }
+.chat-overlay-resize--s  { bottom: 0; }
+.chat-overlay-resize--e  { right: 0; }
+.chat-overlay-resize--w  { left: 0; }
+.chat-overlay-resize--ne, .chat-overlay-resize--nw,
+.chat-overlay-resize--se, .chat-overlay-resize--sw { width: 12px; height: 12px; }
+.chat-overlay-resize--ne { top: 0; right: 0; cursor: nesw-resize; }
+.chat-overlay-resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.chat-overlay-resize--nw { top: 0; left: 0; cursor: nwse-resize; }
+.chat-overlay-resize--se { bottom: 0; right: 0; cursor: nwse-resize; }
+/* Repère visible du coin bas-droit (le plus naturel pour agrandir). */
+.chat-overlay-resize--se::after {
+  content: '';
+  position: absolute;
+  right: 3px; bottom: 3px;
+  width: 8px; height: 8px;
+  border-right: 2px solid var(--text-tertiary);
+  border-bottom: 2px solid var(--text-tertiary);
+  opacity: 0.8;
+}
+
+/* Zone de saisie de l'overlay : discrète (une ligne, barre d'outils unique), mais
+   détachée de la conversation par un bandeau teinté et un contour marqué. */
+.chat-overlay .input-zone {
+  padding: 8px 10px 10px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-medium);
+}
+.chat-overlay .input-box {
+  max-width: none;
+  padding: 6px 10px 6px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  box-shadow: none;
+}
+.chat-overlay .input-box:focus-within { border-color: var(--text-primary); box-shadow: 0 0 0 2px var(--green-glow); }
+.chat-overlay .chat-input { font-size: 13.5px; line-height: 1.45; min-height: 22px; max-height: 120px; }
+.chat-overlay .input-toolbar { margin-top: 4px; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+.chat-overlay .input-hint { display: none; }
+.chat-overlay .input-toolbar .send-btn { margin-left: auto; }
+.chat-overlay .input-toolbar .droit-date-bar { padding: 0; }
 
 .welcome--overlay {
   padding: 24px 14px;
@@ -1908,6 +1967,7 @@
 }
 
 @media (max-width: 720px) {
+  .chat-overlay-resize { display: none; }
   .chat-overlay {
     right: 12px;
     left: 12px;
@@ -5131,6 +5191,15 @@ a.cite:hover .cite-ref { border-bottom-style: solid; }
 .cite--citation { cursor: help; }
 .cite-flag--ancrage { margin-left: 2px; }
 
+/* Fiche d'une décision : rapprochements et provenance. */
+.cite-fiche-btn { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 0.85em; opacity: 0.7; }
+.cite-fiche-btn:hover, .cite-fiche-btn[aria-expanded="true"] { opacity: 1; }
+.cite-fiche { display: block; white-space: normal; margin: 6px 0; padding: 8px 10px; font-size: 0.9em;
+  border: 1px solid var(--border, rgba(128,128,128,.3)); border-radius: 8px; background: rgba(120, 125, 145, 0.08); }
+.cite-fiche-ligne { display: block; }
+.cite-fiche-titre { display: block; margin-top: 6px; font-weight: 600; font-size: 0.9em; opacity: 0.85; }
+.cite-fiche-limite { opacity: 0.8; font-style: italic; }
+
 /* ── Serveurs MCP officiels (Légifrance, Judilibre) ──────────────────────── */
 .omcp { border: 1px solid var(--border, rgba(128,128,128,.3)); border-radius: 10px; padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
 .omcp__head { display: flex; align-items: baseline; justify-content: space-between; }
@@ -5229,3 +5298,20 @@ a.cite:hover .cite-ref { border-bottom-style: solid; }
 .omcp__tool-list code { flex: 1; font-size: .92em; overflow: hidden; text-overflow: ellipsis; }
 .omcp__tool-tokens { font-size: .75em; opacity: .55; white-space: nowrap; }
 .omcp__tools-actions { display: flex; align-items: center; gap: 10px; }
+
+/* ── Droit applicable au… (date des faits) ─────────────────────────────── */
+.droit-date-bar { display: flex; align-items: center; gap: 8px; padding: 2px 4px 6px; font-size: 12px; color: var(--text-secondary, #666); }
+.droit-date-add, .droit-date-clear, .droit-date-apply { background: none; border: 1px dashed var(--border, #bbb); border-radius: 12px; padding: 2px 10px; font-size: 12px; color: inherit; cursor: pointer; }
+.droit-date-add:hover, .droit-date-clear:hover, .droit-date-apply:hover:not(:disabled) { border-style: solid; }
+.droit-date-apply { border-color: var(--accent, #2f5d9e); color: var(--accent, #2f5d9e); }
+.droit-date-apply:disabled { opacity: .4; cursor: default; }
+.droit-date-chip { display: inline-flex; align-items: center; border: 1px solid var(--accent, #2f5d9e); border-radius: 12px; overflow: hidden; }
+.droit-date-chip-main, .droit-date-chip-x { background: none; border: 0; padding: 2px 8px; font-size: 12px; color: var(--accent, #2f5d9e); cursor: pointer; }
+.droit-date-chip-x { border-left: 1px solid var(--accent, #2f5d9e); padding: 2px 7px; }
+.droit-date-input { font-size: 12px; padding: 2px 6px; border: 1px solid var(--border, #bbb); border-radius: 6px; background: transparent; color: inherit; }
+.droit-date-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+/* Colonne de gauche (étroite) : le champ prend toute la largeur, les boutons passent dessous. */
+.droit-date-field .droit-date-row { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.droit-date-field .droit-date-input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 13px; padding: 6px 8px; }
+.droit-date-field .droit-date-actions { display: flex; }
+.droit-date-help { display: block; margin-top: 6px; opacity: .75; line-height: 1.3; }

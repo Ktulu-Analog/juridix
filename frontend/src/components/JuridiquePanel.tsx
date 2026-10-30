@@ -54,6 +54,8 @@ import { useAnnotations } from './juridique/hooks/useAnnotations';
 import { useDossiers } from './juridique/hooks/useDossiers';
 import { WinnowIndicator } from './juridique/WinnowBadge';
 import { useJuridiqueSearch } from './juridique/hooks/useJuridiqueSearch';
+import { DroitADateControl } from './DroitADateControl';
+import { useDroitADate } from '../utils/droitADate';
 import { useDocumentViewer, parseChronoDate } from './juridique/hooks/useDocumentViewer';
 
 
@@ -214,6 +216,8 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
 
   // Copie de la sélection depuis le popover d'annotation (retour visuel « Copié »).
   const [selectionCopied, setSelectionCopied] = useState(false);
+  // « Droit applicable au » (date des faits), partagé avec le chat.
+  const droitADate = useDroitADate();
 
   // ── Annotations ─────────────────────────────────────────────────────────────
   // viewerContentRef vient de useDocumentViewer : partagée avec le mécanisme
@@ -380,6 +384,19 @@ export function JuridiquePanel({ onSendToChat, onShowInChat, onClose, globalCont
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Droit applicable au… (fonds Codes) : versions en vigueur à la date des faits */}
+      {source === 'legifrance' && (fond === 'CODE_ETAT' || fond === 'CODE_DATE') && (
+        <div className="jur-facet-group">
+          <div className="jur-facet-summary" style={{ cursor: 'default' }}>
+            <span className="jur-facet-label">
+              Droit applicable au
+              {droitADate && <span className="jur-facet-count">●</span>}
+            </span>
+          </div>
+          <DroitADateControl variant="field" />
         </div>
       )}
 

@@ -315,6 +315,10 @@ pub struct FiltreDates {
     pub start: Option<String>,
     /// Format : "YYYY-MM-DD"
     pub end: Option<String>,
+    /// Date unique (« en vigueur à cette date », facette DATE_VERSION de CODE_DATE) :
+    /// envoyée en `singleDate` au lieu d'une période. Format : "YYYY-MM-DD".
+    #[serde(default)]
+    pub single_date: Option<String>,
 }
 
 /// Paramètres complets d'une recherche Légifrance.
@@ -407,6 +411,10 @@ impl SearchParams {
         }
 
         for fd in &self.filtres_dates {
+            if let Some(sd) = &fd.single_date {
+                filtres.push(json!({ "facette": fd.facette, "singleDate": sd }));
+                continue;
+            }
             let mut dates = json!({});
             if let Some(s) = &fd.start {
                 dates["start"] = json!(s);
@@ -542,6 +550,7 @@ pub async fn search_simple(
                 facette: facette.to_string(),
                 start: date_start,
                 end: date_end,
+                single_date: None,
             });
         }
     }

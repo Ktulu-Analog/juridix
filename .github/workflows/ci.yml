@@ -93,9 +93,16 @@ jobs:
         run: cargo test --no-default-features
 
   # ── Sécurité des dépendances ─────────────────────────────────────────────────
+  # Non bloquant pour les PR et les pushs : une CVE publiée entre-temps sur une dépendance
+  # sans rapport avec la modification ne doit pas empêcher de fusionner. L'alerte reste visible
+  # (job en échec toléré) et, lors de l'exécution hebdomadaire, une issue est ouverte.
   audit:
     name: Audit des dépendances (cargo audit + npm audit)
     runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name != 'schedule' }}
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -114,3 +121,18 @@ jobs:
       - name: cargo audit
         working-directory: src-tauri
         run: cargo audit
+
+      - name: Ouvrir ou mettre à jour l'issue d'alerte (exécution hebdomadaire seulement)
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create audit-dependances --color B60205 --description "Alerte de sécurité sur les dépendances" || true
+          existing=$(gh issue list --label audit-dependances --state open --json number --jq '.[0].number // empty')
+          body="L'audit hebdomadaire des dépendances (cargo audit / npm audit) a échoué : $RUN_URL"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "Alerte de sécurité sur les dépendances" --label audit-dependances --body "$body"
+          fi

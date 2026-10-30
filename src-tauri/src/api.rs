@@ -1038,6 +1038,33 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
     };
 
     let mut final_system = build_system_with_rag(&system_prompt, rag_context.as_deref());
+    // Date des faits : consigne + rédaction applicable des articles cités. Ajoutée plus bas, APRÈS
+    // la consigne de reproduction des textes d'outils, pour ne pas être supplantée par elle (un outil
+    // Légifrance ne renvoie que la version actuelle).
+    let bloc_date = {
+        let user_texts: Vec<String> = req
+            .messages
+            .iter()
+            .rev()
+            .filter(|m| m.role == "user")
+            .take(3)
+            .map(|m| match &m.content {
+                crate::models::MessageContent::Text(s) => s.clone(),
+                crate::models::MessageContent::Parts(parts) => parts
+                    .iter()
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            })
+            .collect();
+        let refs: Vec<&str> = user_texts.iter().map(String::as_str).collect();
+        crate::juridique::temporal::bloc_chat(
+            state.juridique_state(),
+            &refs,
+            req.date_applicable.as_deref(),
+        )
+        .await
+    };
 
     // Build LLM endpoint
     let mut endpoint = creds.endpoint.trim_end_matches('/').to_string();
@@ -1098,6 +1125,13 @@ async fn chat(State(state): State<Arc<AppState>>, Json(req): Json<ChatRequest>) 
         append_no_tools_notice(&mut messages_payload);
     } else {
         append_system_notice(&mut messages_payload, TOOL_QUOTE_NOTICE);
+    }
+    if !bloc_date.is_empty() {
+        append_system_notice(&mut messages_payload, &bloc_date);
+        // Rappel dans la dernière question (charge envoyée au modèle uniquement, jamais affichée).
+        if let Some(date) = req.date_applicable.as_deref() {
+            let _ = crate::juridique::temporal::rappel_dernier_message(&mut messages_payload, date);
+        }
     }
 
     // Ajouter l'instruction MCP image si des serveurs MCP autorisés sont disponibles

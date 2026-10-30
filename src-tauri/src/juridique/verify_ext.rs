@@ -27,6 +27,8 @@
 //      « décret n° 2020-1455 du 27 novembre 2020 ») → recherche Légifrance
 //      (fond LODA) ; existence, état juridique, cohérence de la date ;
 //   3. les CONVENTIONS COLLECTIVES citées par leur IDCC → consultation KALI ;
+//   3 bis. les décisions citées par ECLI, du Conseil d'État, des juridictions
+//      administratives et des cours d'appel → `verify_juris.rs` ;
 //   4. les CITATIONS TEXTUELLES (passages entre guillemets) :
 //        - rattachées à un article de code sans ambiguïté : comparées au texte
 //          de l'article sur Légifrance (verdict possible dans les deux sens) ;
@@ -59,6 +61,7 @@ use super::{
         etat_libelle, fold, mask_non_prose, month_number, utf16_offset, Ancrage, ArticleRef,
         GroundingIndex, Intern, Kind, Occurrence, Report, Statut, Verification, MAX_OCCURRENCES,
     },
+    verify_juris::{self, Court, DecisionQuery},
 };
 
 // ── Paramètres ────────────────────────────────────────────────────────────────
@@ -127,7 +130,7 @@ fn month_from_fr(m: &str) -> Option<u32> {
 }
 
 /// Première date « 12 mars 2024 » / « 1er déc. 2022 » de `s`, avec sa position.
-fn first_date(s: &str) -> Option<(usize, usize, String)> {
+pub(crate) fn first_date(s: &str) -> Option<(usize, usize, String)> {
     let c = RE_DATE.captures(s)?;
     let day: u32 = if c["d"].eq_ignore_ascii_case("1er") {
         1
@@ -232,6 +235,14 @@ pub struct DecisionRef {
     pub chambre: Option<&'static str>,
     /// Date citée, « AAAA-MM-JJ ».
     pub date: Option<String>,
+    /// Juridiction (voir `verify_juris`) : Cour de cassation pour un numéro de pourvoi.
+    pub court: Court,
+    /// Numéro normalisé (voir `DecisionQuery::number`) ; `None` pour un ECLI.
+    pub number: Option<String>,
+    /// ECLI cité, en majuscules.
+    pub ecli: Option<String>,
+    /// Siège cité (cour d'appel).
+    pub place: Option<String>,
 }
 
 fn display_pourvoi(key: &str) -> String {
@@ -299,11 +310,20 @@ pub fn extract_decision_refs(text: &str) -> Vec<DecisionRef> {
             end,
             raw: text[start..end].to_string(),
             display: display_pourvoi(&digits),
-            key: digits,
+            key: digits.clone(),
             chambre,
             date: date.map(|(_, _, d)| d),
+            court: Court::Cassation,
+            number: Some(digits),
+            ecli: None,
+            place: None,
         });
     }
+    // Décisions citées par ECLI, du Conseil d'État, des juridictions administratives et
+    // des cours d'appel : même contexte, mêmes exclusions, sans chevaucher les pourvois.
+    let taken: Vec<(usize, usize)> = out.iter().map(|d| (d.start, d.end)).collect();
+    out.extend(verify_juris::extract_other_decisions(text, &masked, &taken));
+    out.sort_by_key(|d| d.start);
     out
 }
 
@@ -878,7 +898,7 @@ pub fn needs_network(
     ctx_article: bool,
 ) -> bool {
     ctx_article
-        || !ext.decisions.is_empty()
+        || ext.decisions.iter().any(|d| d.court != Court::Autre)
         || !ext.idccs.is_empty()
         || texts
             .iter()
@@ -896,7 +916,7 @@ fn texte_is_lookupable(nature: &str, numero: Option<&str>) -> bool {
 // ── Résultats de recherche ────────────────────────────────────────────────────
 
 /// Ce que Judilibre sait d'une décision.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecisionInfo {
     pub id: String,
     pub number: String,
@@ -907,14 +927,32 @@ pub struct DecisionInfo {
     pub date: Option<String>,
     pub solution: Option<String>,
     pub publication: Vec<String>,
+    /// ECLI de la décision, quand la source le donne.
+    #[serde(default)]
+    pub ecli: Option<String>,
+    /// Remarque à afficher avec la fiche (ex. : comparaison de l'ECLI indirecte).
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Base d'où vient la décision (« Judilibre », « Légifrance »).
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Lien vers la décision quand il ne se déduit pas de l'identifiant.
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum DecisionLookup {
     Trouvee(DecisionInfo),
     /// Recherche aboutie, aucune décision de ce numéro.
     Introuvable,
+    /// Des décisions de ce numéro existent, mais rien ne permet de désigner celle qui est
+    /// citée (numéro de RG partagé par plusieurs cours d'appel) : pas de verdict.
+    Incertaine {
+        raison: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -942,7 +980,7 @@ pub enum IdccLookup {
     Introuvable,
 }
 
-fn str_field(v: &Value, k: &str) -> Option<String> {
+pub(crate) fn str_field(v: &Value, k: &str) -> Option<String> {
     v.get(k)
         .and_then(Value::as_str)
         .map(str::trim)
@@ -950,12 +988,41 @@ fn str_field(v: &Value, k: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn digits_of(s: &str) -> String {
+pub(crate) fn digits_of(s: &str) -> String {
     s.chars().filter(char::is_ascii_digit).collect()
 }
 
-/// Décision de `results` dont le numéro (`number` ou `numbers[]`) vaut `key`.
-pub(crate) fn pick_decision(results: &[Value], key: &str) -> Option<DecisionInfo> {
+/// Fiche d'une décision Judilibre (élément de `results`).
+pub(crate) fn decision_info_from(r: &Value, id: String, number: String) -> DecisionInfo {
+    let publication = r
+        .get("publication")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    DecisionInfo {
+        id,
+        number,
+        chamber: str_field(r, "chamber"),
+        jurisdiction: str_field(r, "jurisdiction"),
+        formation: str_field(r, "formation"),
+        date: str_field(r, "decision_date").map(|d| d.chars().take(10).collect()),
+        solution: str_field(r, "solution"),
+        publication,
+        ecli: str_field(r, "ecli"),
+        note: None,
+        source: Some("Judilibre".to_string()),
+        url: None,
+    }
+}
+
+/// Décisions de `results` dont le numéro (`number` ou `numbers[]`) vaut `key`.
+pub(crate) fn pick_decisions(results: &[Value], key: &str) -> Vec<DecisionInfo> {
+    let mut out = Vec::new();
     for r in results {
         let mut numbers: Vec<String> = Vec::new();
         if let Some(n) = str_field(r, "number") {
@@ -970,28 +1037,27 @@ pub(crate) fn pick_decision(results: &[Value], key: &str) -> Option<DecisionInfo
         let Some(id) = str_field(r, "id") else {
             continue;
         };
-        let publication = r
-            .get("publication")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
-        return Some(DecisionInfo {
-            id,
-            number: matched.clone(),
-            chamber: str_field(r, "chamber"),
-            jurisdiction: str_field(r, "jurisdiction"),
-            formation: str_field(r, "formation"),
-            date: str_field(r, "decision_date").map(|d| d.chars().take(10).collect()),
-            solution: str_field(r, "solution"),
-            publication,
-        });
+        out.push(decision_info_from(r, id, matched.clone()));
     }
-    None
+    out
+}
+
+/// Première décision de `results` dont le numéro (`number` ou `numbers[]`) vaut `key`.
+pub(crate) fn pick_decision(results: &[Value], key: &str) -> Option<DecisionInfo> {
+    pick_decisions(results, key).into_iter().next()
+}
+
+/// Décision de `results` dont l'ECLI est exactement `ecli` (sans tenir compte de la casse).
+pub(crate) fn pick_decision_by_ecli(results: &[Value], ecli: &str) -> Option<DecisionInfo> {
+    results.iter().find_map(|r| {
+        let found = str_field(r, "ecli")?;
+        if !found.eq_ignore_ascii_case(ecli) {
+            return None;
+        }
+        let id = str_field(r, "id")?;
+        let number = str_field(r, "number").unwrap_or_default();
+        Some(decision_info_from(r, id, number))
+    })
 }
 
 /// `numero` figure-t-il dans `hay` comme un numéro entier ? (« 78-17 » ne doit pas
@@ -1107,6 +1173,40 @@ pub(crate) fn number_field_from_taxonomy(v: &Value) -> Option<String> {
         .map(|(k, _)| k.clone())
 }
 
+/// Clé du champ « ECLI » dans la taxonomie Judilibre `field` : l'entrée dont l'intitulé ou
+/// la clé est « ECLI ». `None` si la taxonomie n'en propose pas (la recherche se fait alors
+/// en texte intégral).
+pub(crate) fn ecli_field_from_taxonomy(v: &Value) -> Option<String> {
+    let result = v.get("result").unwrap_or(v);
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    match result {
+        Value::Object(map) if map.contains_key("key") && map.contains_key("value") => {
+            if let (Some(k), Some(l)) = (str_field(result, "key"), str_field(result, "value")) {
+                pairs.push((k, l));
+            }
+        }
+        Value::Object(map) => {
+            for (k, label) in map {
+                if let Some(l) = label.as_str() {
+                    pairs.push((k.clone(), l.to_string()));
+                }
+            }
+        }
+        Value::Array(items) => {
+            for it in items {
+                if let (Some(k), Some(l)) = (str_field(it, "key"), str_field(it, "value")) {
+                    pairs.push((k, l));
+                }
+            }
+        }
+        _ => {}
+    }
+    pairs
+        .iter()
+        .find(|(k, l)| k.eq_ignore_ascii_case("ecli") || fold(l).contains("ecli"))
+        .map(|(k, _)| k.clone())
+}
+
 /// Réponse `/consult/kaliContIdcc`. `Err` si la forme est inattendue (pas de verdict).
 pub(crate) fn parse_idcc(v: &Value) -> Result<IdccLookup, String> {
     let root = v.get("kaliCont").unwrap_or(v);
@@ -1149,8 +1249,30 @@ pub trait ExtLookup: Send + Sync {
         numero: &'a str,
     ) -> BoxFuture<'a, Result<TexteLookup, String>>;
     fn idcc<'a>(&'a self, idcc: &'a str) -> BoxFuture<'a, Result<IdccLookup, String>>;
+    /// Décision de toute juridiction (ECLI, Conseil d'État, juridictions administratives,
+    /// cours d'appel, ou simple numéro de pourvoi). Par défaut : seuls les numéros de
+    /// pourvoi sont traités (via `decision`), le reste est « non disponible ».
+    fn decision_ref<'a>(
+        &'a self,
+        q: &'a DecisionQuery,
+    ) -> BoxFuture<'a, Result<DecisionLookup, String>> {
+        if let Some(key) = q.pourvoi_key() {
+            return self.decision(key, &q.display);
+        }
+        Box::pin(async { Err(NO_SOURCE.to_string()) })
+    }
     /// Texte d'un article (identifiant LEGIARTI).
     fn article_text<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<String, String>>;
+    /// Identifiant de la version de l'article `id` applicable à `date` (droit dans le temps) :
+    /// `Ok(None)` = aucune version en vigueur à cette date ; `Err` = non vérifiable.
+    /// Par défaut : non disponible.
+    fn article_version_at<'a>(
+        &'a self,
+        _id: &'a str,
+        _date: chrono::NaiveDate,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        Box::pin(async { Err(NO_SOURCE.to_string()) })
+    }
 }
 
 const NO_SOURCE: &str = "aucune source configurée";
@@ -1181,6 +1303,15 @@ impl ExtLookup for NoExt {
 /// propose pas). Mémorisée pour la durée du processus ; un échec réseau n'est pas mémorisé.
 static NUMBER_FIELDS: Lazy<std::sync::Mutex<HashMap<String, Option<String>>>> =
     Lazy::new(Default::default);
+/// Clé du champ « ECLI » par serveur Judilibre, lue dans la même taxonomie que le champ
+/// « numéro de pourvoi » (donc remplie en même temps que `NUMBER_FIELDS`).
+static ECLI_FIELDS: Lazy<std::sync::Mutex<HashMap<String, Option<String>>>> =
+    Lazy::new(Default::default);
+/// Sièges des cours d'appel (taxonomie Judilibre `location`, contexte `ca`) par serveur :
+/// couples (clé, intitulé).
+type SeatEntries = Vec<(String, String)>;
+static CA_LOCATIONS: Lazy<std::sync::Mutex<HashMap<String, SeatEntries>>> =
+    Lazy::new(Default::default);
 
 /// Adaptateur PISTE (Judilibre + Légifrance).
 pub struct PisteExt {
@@ -1205,6 +1336,9 @@ impl PisteExt {
         match judilibre::get_taxonomy(&self.client, "field", None).await {
             Ok(v) => {
                 let field = number_field_from_taxonomy(&v);
+                if let Ok(mut m) = ECLI_FIELDS.lock() {
+                    m.insert(base.clone(), ecli_field_from_taxonomy(&v));
+                }
                 if let Ok(mut m) = NUMBER_FIELDS.lock() {
                     m.insert(base, field.clone());
                 }
@@ -1212,6 +1346,105 @@ impl PisteExt {
             }
             // Échec passager : on ne mémorise rien et on se rabat sur le texte intégral.
             Err(_) => None,
+        }
+    }
+
+    /// Champs de la taxonomie Judilibre à cibler pour une recherche par ECLI : le champ
+    /// « ECLI » s'il existe, puis le champ « numéro » (lus dans la même taxonomie).
+    async fn ecli_fields(&self) -> Vec<String> {
+        let number = self.number_field().await;
+        let base = self.client.judilibre_base().to_string();
+        let ecli = ECLI_FIELDS
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&base).cloned())
+            .flatten();
+        let mut out: Vec<String> = ecli.into_iter().collect();
+        out.extend(number.filter(|n| !out.contains(n)));
+        out
+    }
+
+    /// Clé du siège d'une cour d'appel dans la taxonomie `location` (contexte `ca`).
+    async fn ca_location(&self, place: &str) -> Option<String> {
+        let base = self.client.judilibre_base().to_string();
+        let cached = CA_LOCATIONS.lock().ok().and_then(|m| m.get(&base).cloned());
+        let entries = match cached {
+            Some(v) => v,
+            None => {
+                let v = judilibre::get_taxonomy(&self.client, "location", Some("ca"))
+                    .await
+                    .ok()?;
+                let entries = verify_juris::taxonomy_entries(&v);
+                if !entries.is_empty() {
+                    if let Ok(mut m) = CA_LOCATIONS.lock() {
+                        m.insert(base, entries.clone());
+                    }
+                }
+                entries
+            }
+        };
+        verify_juris::location_key_for(&entries, place)
+    }
+
+    async fn decision_ref_impl(&self, q: &DecisionQuery) -> Result<DecisionLookup, String> {
+        use verify_juris::{judilibre_by_ecli, judilibre_by_rg, legifrance_juri, narrow_ca};
+        // Cour de cassation, par numéro de pourvoi : chemin historique, inchangé.
+        if let Some(key) = q.pourvoi_key() {
+            return self.decision_impl(key, &q.display).await;
+        }
+        match (q.court, &q.ecli, &q.number) {
+            (Court::Cassation | Court::CourAppel, Some(ecli), _) => {
+                let jur = if q.court == Court::Cassation {
+                    "cc"
+                } else {
+                    "ca"
+                };
+                let fields = self.ecli_fields().await;
+                Ok(
+                    match judilibre_by_ecli(&self.client, ecli, jur, fields).await? {
+                        Some(info) => DecisionLookup::Trouvee(info),
+                        None => DecisionLookup::Introuvable,
+                    },
+                )
+            }
+            (Court::CourAppel, None, Some(rg)) => {
+                let key = digits_of(rg);
+                let field = self.number_field().await;
+                let all = judilibre_by_rg(&self.client, &key, rg, field.clone(), None).await?;
+                if all.is_empty() {
+                    return Ok(DecisionLookup::Introuvable);
+                }
+                // Siège cité : appliqué comme filtre de recherche s'il est identifiable.
+                let at_seat = match &q.place {
+                    Some(place) => match self.ca_location(place).await {
+                        Some(loc) => {
+                            Some(judilibre_by_rg(&self.client, &key, rg, field, Some(loc)).await?)
+                        }
+                        None => None,
+                    },
+                    None => None,
+                };
+                Ok(narrow_ca(all, at_seat, q.date.as_deref()))
+            }
+            (court, _, _) if court.is_admin() => {
+                let res = legifrance_juri(&self.client, q).await?;
+                // « ECLI:FR:CAA… » peut aussi désigner une cour d'appel judiciaire
+                // (Agen, Aix, Amiens…) : en dernier recours, Judilibre.
+                if court == Court::CourAdminAppel && q.ecli.is_some() {
+                    if let DecisionLookup::Introuvable = res {
+                        let ecli = q.ecli.as_deref().unwrap_or_default();
+                        let fields = self.ecli_fields().await;
+                        return Ok(
+                            match judilibre_by_ecli(&self.client, ecli, "ca", fields).await? {
+                                Some(info) => DecisionLookup::Trouvee(info),
+                                None => DecisionLookup::Introuvable,
+                            },
+                        );
+                    }
+                }
+                Ok(res)
+            }
+            _ => Err(NO_SOURCE.to_string()),
         }
     }
 
@@ -1317,6 +1550,17 @@ impl PisteExt {
         Ok(IdccLookup::Introuvable)
     }
 
+    async fn article_version_at_impl(
+        &self,
+        id: &str,
+        date: chrono::NaiveDate,
+    ) -> Result<Option<String>, String> {
+        let v = legifrance::get_article(&self.client, id)
+            .await
+            .map_err(|e| e.to_string())?;
+        super::temporal::version_applicable_id(&v, date)
+    }
+
     async fn article_text_impl(&self, id: &str) -> Result<String, String> {
         let v = legifrance::get_article(&self.client, id)
             .await
@@ -1333,6 +1577,12 @@ impl ExtLookup for PisteExt {
     ) -> BoxFuture<'a, Result<DecisionLookup, String>> {
         Box::pin(self.decision_impl(key, display))
     }
+    fn decision_ref<'a>(
+        &'a self,
+        q: &'a DecisionQuery,
+    ) -> BoxFuture<'a, Result<DecisionLookup, String>> {
+        Box::pin(self.decision_ref_impl(q))
+    }
     fn texte<'a>(
         &'a self,
         nature: &'a str,
@@ -1345,6 +1595,13 @@ impl ExtLookup for PisteExt {
     }
     fn article_text<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(self.article_text_impl(id))
+    }
+    fn article_version_at<'a>(
+        &'a self,
+        id: &'a str,
+        date: chrono::NaiveDate,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        Box::pin(self.article_version_at_impl(id, date))
     }
 }
 
@@ -1390,6 +1647,19 @@ impl<L: ExtLookup> ExtLookup for CachedExt<L> {
     ) -> BoxFuture<'a, Result<DecisionLookup, String>> {
         Box::pin(self.cached(format!("dec:{key}"), self.inner.decision(key, display)))
     }
+    fn decision_ref<'a>(
+        &'a self,
+        q: &'a DecisionQuery,
+    ) -> BoxFuture<'a, Result<DecisionLookup, String>> {
+        // Un numéro de pourvoi partage l'entrée de cache de `decision`.
+        if let Some(key) = q.pourvoi_key() {
+            return self.decision(key, &q.display);
+        }
+        Box::pin(self.cached(
+            format!("decq:{}", q.cache_key()),
+            self.inner.decision_ref(q),
+        ))
+    }
     fn texte<'a>(
         &'a self,
         nature: &'a str,
@@ -1406,11 +1676,21 @@ impl<L: ExtLookup> ExtLookup for CachedExt<L> {
     fn article_text<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(self.cached(format!("art:{id}"), self.inner.article_text(id)))
     }
+    fn article_version_at<'a>(
+        &'a self,
+        id: &'a str,
+        date: chrono::NaiveDate,
+    ) -> BoxFuture<'a, Result<Option<String>, String>> {
+        Box::pin(self.cached(
+            format!("artv:{id}:{date}"),
+            self.inner.article_version_at(id, date),
+        ))
+    }
 }
 
 // ── Rapport ───────────────────────────────────────────────────────────────────
 
-/// Ce que `extend_report` reçoit en plus du rapport de base.
+/// Ce que `extend_report_at` reçoit en plus du rapport de base.
 pub struct ExtInput<'a> {
     /// Texte analysé (les offsets des références s'y rapportent).
     pub text: &'a str,
@@ -1439,6 +1719,7 @@ fn blank(kind: Kind, reference: String, numero: String) -> Verification {
         existe_dans: Vec::new(),
         detail: None,
         infos: Vec::new(),
+        decision_id: None,
         occurrences: Vec::new(),
         intern: Intern::default(),
     }
@@ -1496,11 +1777,23 @@ fn is_vigueur(etat: &str) -> bool {
 
 /// Complète `report` : vérifie les textes hors codes cités par numéro (entrées
 /// déjà présentes), puis ajoute décisions, conventions collectives et citations.
+#[cfg(test)]
 pub async fn extend_report(lookup: &dyn ExtLookup, inp: ExtInput<'_>, report: &mut Report) {
+    extend_report_at(lookup, inp, report, None).await;
+}
+
+/// Comme `extend_report`, avec une date des faits : les citations textuelles rattachées à
+/// un article sont alors comparées à la rédaction applicable à cette date, et non au texte actuel.
+pub async fn extend_report_at(
+    lookup: &dyn ExtLookup,
+    inp: ExtInput<'_>,
+    report: &mut Report,
+    date: Option<chrono::NaiveDate>,
+) {
     apply_textes(lookup, report).await;
     apply_decisions(lookup, &inp, report).await;
     apply_idcc(lookup, &inp, report).await;
-    apply_quotes(lookup, &inp, report).await;
+    apply_quotes(lookup, &inp, report, date).await;
 }
 
 async fn apply_textes(lookup: &dyn ExtLookup, report: &mut Report) {
@@ -1612,20 +1905,19 @@ async fn apply_decisions(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mu
         });
     }
 
-    let to_check: Vec<(usize, &DecisionRef)> = order
-        .iter()
-        .take(MAX_DECISION_LOOKUPS)
-        .copied()
-        .enumerate()
-        .collect();
+    // Les juridictions reconnues mais non interrogées (ECLI du Conseil constitutionnel, de la
+    // CJUE…) ne coûtent aucun appel et ne comptent pas dans la limite.
     // Valeurs possédées (et non des références) : le futur reste `Send` dans le handler.
-    let jobs: Vec<(usize, String, String)> = to_check
-        .into_iter()
-        .map(|(i, d)| (i, d.key.clone(), d.display.clone()))
+    let jobs: Vec<(usize, DecisionQuery)> = order
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| d.court != Court::Autre)
+        .take(MAX_DECISION_LOOKUPS)
+        .map(|(i, d)| (i, d.query()))
         .collect();
     let mut outcomes: Vec<(usize, Result<DecisionLookup, String>)> = stream::iter(jobs)
-        .map(|(i, key, display)| async move {
-            let res = lookup.decision(&key, &display).await;
+        .map(|(i, q)| async move {
+            let res = lookup.decision_ref(&q).await;
             (i, res)
         })
         .buffer_unordered(EXT_CONCURRENCY)
@@ -1637,37 +1929,121 @@ async fn apply_decisions(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mu
 
     for (i, d) in order.iter().enumerate() {
         let mut v = groups.remove(d.key.as_str()).expect("groupe décision");
+        if d.court == Court::Autre {
+            v.detail = Some(unqueried_detail(d));
+            report.verifications.push(v);
+            continue;
+        }
         match outcome_by_idx.remove(&i) {
             None => {
                 v.detail = Some("Limite du nombre de vérifications par réponse atteinte".into());
             }
-            Some(Ok(DecisionLookup::Trouvee(info))) => apply_decision_found(&mut v, d, &info),
+            Some(Ok(DecisionLookup::Trouvee(info))) => {
+                apply_decision_found(&mut v, d, &info);
+                // Cité par ECLI (ou par un autre numéro), le même arrêt peut figurer dans les
+                // sources fournies au modèle sous son numéro : ce n'est pas « hors sources ».
+                if let (Some(g), Some(Ancrage::HorsSources)) = (inp.grounding, v.ancrage) {
+                    if alt_grounding_keys(d, &info)
+                        .iter()
+                        .any(|k| g.has_decision(k))
+                    {
+                        v.ancrage = Some(Ancrage::DansSources);
+                    }
+                }
+            }
             Some(Ok(DecisionLookup::Introuvable)) => {
                 v.statut = Statut::NonRetrouvee;
-                v.detail = Some(
-                    "Aucune décision portant ce numéro de pourvoi n'a été retrouvée dans Judilibre, qui n'est pas exhaustif : à vérifier."
-                        .into(),
-                );
+                v.detail = Some(not_found_detail(d));
             }
-            Some(Err(e)) => technical_error(&mut v, "Judilibre", &e),
+            Some(Ok(DecisionLookup::Incertaine { raison })) => {
+                v.statut = Statut::NonRetrouvee;
+                v.detail = Some(raison);
+            }
+            Some(Err(e)) => technical_error(&mut v, d.court.source().unwrap_or("La source"), &e),
         }
         report.verifications.push(v);
     }
 }
 
+/// Message d'un ECLI d'une juridiction que Juridix n'interroge pas : la référence n'est
+/// PAS vérifiée (ni confirmée ni infirmée), et le message dit où la contrôler.
+fn unqueried_detail(d: &DecisionRef) -> String {
+    let ecli = d.ecli.as_deref().unwrap_or(&d.display);
+    let mut parts = ecli.split(':').skip(1);
+    let (country, code) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let ou = match (country, code) {
+        ("EU", _) => {
+            "Cour de justice de l'Union européenne : à contrôler sur EUR-Lex (eur-lex.europa.eu)"
+        }
+        ("CE", _) => {
+            "Cour européenne des droits de l'homme : à contrôler sur HUDOC (hudoc.echr.coe.int)"
+        }
+        ("FR", "CC") => "Conseil constitutionnel : à contrôler sur conseil-constitutionnel.fr",
+        _ => "à contrôler sur le site de la juridiction concernée",
+    };
+    format!(
+        "Non vérifiée par Juridix : cette juridiction n'est pas interrogée, l'existence de la référence n'est ni confirmée ni infirmée. {ou}."
+    )
+}
+
+/// Message d'une décision non retrouvée : recherche aboutie, aucune décision correspondante.
+/// Ce n'est jamais présenté comme une preuve d'inexistence.
+fn not_found_detail(d: &DecisionRef) -> String {
+    match (d.court, d.ecli.is_some()) {
+        (Court::Cassation, false) => "Aucune décision portant ce numéro de pourvoi n'a été retrouvée dans Judilibre, qui n'est pas exhaustif : à vérifier.".into(),
+        (Court::Cassation, true) => "Aucune décision portant cet ECLI n'a été retrouvée dans Judilibre, qui n'est pas exhaustif : à vérifier.".into(),
+        (Court::CourAppel, _) => "Aucun arrêt correspondant n'a été retrouvé dans Judilibre, qui ne couvre qu'une partie des décisions des cours d'appel : à vérifier.".into(),
+        (c, _) if c.is_admin() => "Aucune décision correspondante n'a été retrouvée dans la jurisprudence administrative de Légifrance, qui n'est pas exhaustive (notamment pour les cours et tribunaux) : à vérifier.".into(),
+        _ => "Décision non retrouvée : à vérifier.".into(),
+    }
+}
+
+/// Clés d'ancrage (`dec|…`) sous lesquelles la décision retrouvée peut figurer dans les
+/// sources : son numéro, tel que la source officielle le donne.
+fn alt_grounding_keys(d: &DecisionRef, info: &DecisionInfo) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(k) = verify_juris::number_key(d.court, &info.number) {
+        keys.push(k);
+    }
+    // ECLI de la Cour de cassation / d'une cour d'appel : le numéro renvoyé par Judilibre
+    // peut être un pourvoi ou un RG.
+    for court in [
+        Court::Cassation,
+        Court::CourAppel,
+        Court::ConseilEtat,
+        Court::CourAdminAppel,
+    ] {
+        if let Some(k) = verify_juris::number_key(court, &info.number) {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+    }
+    keys
+}
+
 fn apply_decision_found(v: &mut Verification, d: &DecisionRef, info: &DecisionInfo) {
     v.existe = Some(true);
-    v.url = Some(format!(
-        "https://www.courdecassation.fr/decision/{}",
-        info.id
-    ));
+    v.url = info.url.clone().or_else(|| {
+        Some(format!(
+            "https://www.courdecassation.fr/decision/{}",
+            info.id
+        ))
+    });
     v.statut = Statut::Verifiee;
+    v.decision_id = Some(info.id.clone());
 
     let mut infos: Vec<String> = Vec::new();
-    let court = match (&info.chamber, &info.formation) {
-        (Some(c), _) => format!("Cour de cassation — {c}"),
-        (None, Some(f)) => format!("Cour de cassation — {f}"),
-        _ => "Cour de cassation".to_string(),
+    let court = match d.court {
+        Court::Cassation => match (&info.chamber, &info.formation) {
+            (Some(c), _) => format!("Cour de cassation — {c}"),
+            (None, Some(f)) => format!("Cour de cassation — {f}"),
+            _ => "Cour de cassation".to_string(),
+        },
+        other => match &info.chamber {
+            Some(c) => format!("{} — {c}", other.label()),
+            None => other.label().to_string(),
+        },
     };
     infos.push(court);
     if let Some(date) = &info.date {
@@ -1678,6 +2054,12 @@ fn apply_decision_found(v: &mut Verification, d: &DecisionRef, info: &DecisionIn
     }
     if !info.publication.is_empty() {
         infos.push(format!("Publication : {}", info.publication.join(", ")));
+    }
+    if let Some(src) = info.source.as_deref().or_else(|| d.court.source()) {
+        infos.push(format!("Source : {src}"));
+    }
+    if let Some(note) = &info.note {
+        infos.push(note.clone());
     }
     v.infos = infos;
 
@@ -1792,7 +2174,12 @@ struct Target {
     from_question: bool,
 }
 
-async fn apply_quotes(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mut Report) {
+async fn apply_quotes(
+    lookup: &dyn ExtLookup,
+    inp: &ExtInput<'_>,
+    report: &mut Report,
+    date: Option<chrono::NaiveDate>,
+) {
     let quotes: Vec<&QuoteRef> = inp.ext.quotes.iter().take(MAX_QUOTES).collect();
     if quotes.is_empty() {
         return;
@@ -1858,6 +2245,31 @@ async fn apply_quotes(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mut R
     ids.sort();
     ids.dedup();
     ids.truncate(MAX_ARTICLE_TEXTS);
+
+    // Droit dans le temps : version de chaque article applicable à la date des faits. Sans elle,
+    // une citation fidèle à l'ancienne rédaction serait comparée au texte actuel et jugée fausse.
+    let versions_at: HashMap<String, Result<Option<String>, String>> = match date {
+        Some(d) => stream::iter(ids.clone())
+            .map(|id| async move {
+                let r = lookup.article_version_at(&id, d).await;
+                (id, r)
+            })
+            .buffer_unordered(EXT_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect(),
+        None => HashMap::new(),
+    };
+    for r in versions_at.values() {
+        if let Ok(Some(v)) = r {
+            if !ids.contains(v) {
+                ids.push(v.clone());
+            }
+        }
+    }
+    let date_fr = date.map(|d| d.format("%d/%m/%Y").to_string());
+
     let fetched: Vec<(String, Result<String, String>)> = stream::iter(ids)
         .map(|id| async move {
             let res = lookup.article_text(&id).await;
@@ -1889,6 +2301,12 @@ async fn apply_quotes(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mut R
         let mut article_verdict: Option<QuoteMatch> = None;
         let mut desc = String::new();
         let mut from_question = false;
+        // Identifiant du texte comparé (version applicable à la date des faits, sinon l'article courant).
+        let mut cmp_id: Option<String> = target.map(|t| t.id.clone());
+        // Verdict propre au droit dans le temps (prioritaire sur la comparaison ordinaire).
+        let mut temporal_verdict: Option<(Statut, String)> = None;
+        // Version à la date illisible : on ne rend qu'un verdict positif (jamais « absent »).
+        let mut version_unknown = false;
         if let Some(t) = target {
             label = format!("Citation — {}", t.reference);
             code = t.code.clone();
@@ -1906,8 +2324,87 @@ async fn apply_quotes(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mut R
                     ""
                 }
             );
-            if let Some(Ok(hay)) = article_hay.get(&t.id) {
+            if let (Some(_), Some(df)) = (date, date_fr.as_deref()) {
+                match versions_at.get(&t.id) {
+                    Some(Ok(Some(v))) => {
+                        // Rédaction applicable à la date : c'est elle qui fait foi.
+                        desc = format!(
+                            "{}, rédaction applicable au {df}{}",
+                            t.reference,
+                            if t.from_question {
+                                ", cité dans votre question"
+                            } else {
+                                ""
+                            }
+                        );
+                        cmp_id = Some(v.clone());
+                    }
+                    Some(Ok(None)) => {
+                        if !t.from_question || question_quotes == 1 {
+                            temporal_verdict = Some((
+                                Statut::Incoherente,
+                                format!(
+                                    "Cet article n'était pas en vigueur au {df} ({}) : ce passage ne peut pas provenir de son texte applicable à cette date.",
+                                    t.reference
+                                ),
+                            ));
+                        }
+                    }
+                    _ => version_unknown = true,
+                }
+            }
+            if let Some(Ok(hay)) = cmp_id.as_ref().and_then(|c| article_hay.get(c)) {
                 article_verdict = Some(compare_quote(strip_article_label(&q.text), hay));
+            }
+            // Le passage figure dans la version ACTUELLE mais pas dans celle de la date des faits :
+            // le modèle a cité la rédaction d'aujourd'hui alors que l'utilisateur raisonne à une date antérieure.
+            if let (Some(df), Some(c)) = (date_fr.as_deref(), cmp_id.as_deref()) {
+                if c != t.id && article_verdict != Some(QuoteMatch::Exact) {
+                    if let Some(Ok(cur)) = article_hay.get(&t.id) {
+                        if compare_quote(strip_article_label(&q.text), cur) == QuoteMatch::Exact
+                            && (!t.from_question || question_quotes == 1)
+                        {
+                            temporal_verdict = Some((
+                                Statut::Incoherente,
+                                format!(
+                                    "Ce passage figure dans la version actuelle de l'article ({}) mais pas dans sa rédaction applicable au {df} : la citation ne reflète pas le droit en vigueur à la date des faits.",
+                                    t.reference
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some((statut, detail)) = temporal_verdict.take() {
+            let mut v = blank(Kind::Citation, label.clone(), excerpt(&q.text, 10));
+            v.code = code.clone();
+            v.statut = statut;
+            v.detail = Some(detail);
+            v.occurrences.push(Occurrence {
+                debut: utf16_offset(inp.text, q.close_start),
+                fin: utf16_offset(inp.text, q.close_end),
+                texte: inp.text[q.close_start..q.close_end].to_string(),
+            });
+            report.verifications.push(v);
+            continue;
+        }
+        if version_unknown {
+            // Rédaction à la date illisible : on ne compare pas au texte actuel (ce serait refaire l'erreur).
+            if let Some(df) = date_fr.as_deref() {
+                let mut v = blank(Kind::Citation, label.clone(), excerpt(&q.text, 10));
+                v.code = code.clone();
+                v.statut = Statut::NonVerifiable;
+                v.detail = Some(format!(
+                    "La rédaction de l'article applicable au {df} n'a pas pu être lue : passage non comparé."
+                ));
+                v.occurrences.push(Occurrence {
+                    debut: utf16_offset(inp.text, q.close_start),
+                    fin: utf16_offset(inp.text, q.close_end),
+                    texte: inp.text[q.close_start..q.close_end].to_string(),
+                });
+                report.verifications.push(v);
+                continue;
             }
         }
         match article_verdict {
@@ -1934,8 +2431,9 @@ async fn apply_quotes(lookup: &dyn ExtLookup, inp: &ExtInput<'_>, report: &mut R
                 }
                 if verdict.is_none() {
                     if article_verdict == Some(QuoteMatch::Approx) {
-                        let infos = target
-                            .and_then(|t| article_raw.get(&t.id))
+                        let infos = cmp_id
+                            .as_ref()
+                            .and_then(|c| article_raw.get(c))
                             .map(|raw| diff_infos(strip_article_label(&q.text), raw))
                             .unwrap_or_default();
                         verdict = Some((
@@ -2464,10 +2962,34 @@ mod tests {
         textes: Mutex<HashMap<String, Result<TexteLookup, String>>>,
         idccs: Mutex<HashMap<String, Result<IdccLookup, String>>>,
         articles: Mutex<HashMap<String, Result<String, String>>>,
+        /// id de l'article courant → version applicable à la date (`Ok(None)` : aucune).
+        versions: Mutex<HashMap<String, Result<Option<String>, String>>>,
         calls: AtomicUsize,
     }
 
     impl ExtLookup for FakeExt {
+        fn decision_ref<'a>(
+            &'a self,
+            q: &'a DecisionQuery,
+        ) -> BoxFuture<'a, Result<DecisionLookup, String>> {
+            if let Some(key) = q.pourvoi_key() {
+                return self.decision(key, &q.display);
+            }
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let id = q
+                .ecli
+                .clone()
+                .or_else(|| q.number.clone())
+                .unwrap_or_default();
+            let r = self
+                .decisions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .cloned()
+                .unwrap_or(Ok(DecisionLookup::Introuvable));
+            Box::pin(async move { r })
+        }
         fn decision<'a>(
             &'a self,
             key: &'a str,
@@ -2520,6 +3042,20 @@ mod tests {
                 .unwrap_or(Err("absent".into()));
             Box::pin(async move { r })
         }
+        fn article_version_at<'a>(
+            &'a self,
+            id: &'a str,
+            _date: chrono::NaiveDate,
+        ) -> BoxFuture<'a, Result<Option<String>, String>> {
+            let r = self
+                .versions
+                .lock()
+                .unwrap()
+                .get(id)
+                .cloned()
+                .unwrap_or(Err("absent".into()));
+            Box::pin(async move { r })
+        }
     }
 
     fn info(chamber: &str, date: &str) -> DecisionInfo {
@@ -2532,6 +3068,7 @@ mod tests {
             date: Some(date.into()),
             solution: Some("Cassation".into()),
             publication: vec!["Publié au Bulletin".into()],
+            ..Default::default()
         }
     }
 
@@ -2567,6 +3104,30 @@ mod tests {
                 context_article,
             },
             &mut report,
+        )
+        .await;
+        report
+    }
+
+    /// Comme `run`, avec une date des faits (droit applicable à cette date).
+    async fn run_at(ext: &FakeExt, text: &str, date: &str) -> Report {
+        let refs = verify::extract_article_refs(text);
+        let texts: Vec<TextRef> = Vec::new();
+        let er = extract_ext_refs(text);
+        let art = FakeArticles;
+        let mut report = verify::build_report(&art, text, &refs, &texts, None, "2026-10-27").await;
+        extend_report_at(
+            ext,
+            ExtInput {
+                text,
+                article_refs: &refs,
+                ext: &er,
+                grounding: None,
+                sources: &[],
+                context_article: None,
+            },
+            &mut report,
+            Some(chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap()),
         )
         .await;
         report
@@ -2873,6 +3434,112 @@ mod tests {
         assert!(r.verifications.iter().all(|v| v.kind != Kind::Citation));
     }
 
+    // ── Citations et droit dans le temps ─────────────────────────────────────
+
+    const ART_1140_ACTUEL: &str = "Il y a violence lorsqu'une partie s'engage sous la contrainte d'une violence physique ou morale exercée sur elle.";
+    const ART_1140_2012: &str = "Les effets de l'obligation de donner ou de livrer un immeuble sont réglés au titre De la vente et au titre Des privilèges et hypothèques.";
+
+    /// L'article 1140 : version courante `LEGIARTI_Code_civil_1140`, rédaction de 2012 `LEGIARTI_1140_2012`.
+    fn ext_1140() -> FakeExt {
+        let ext = FakeExt::default();
+        {
+            let mut a = ext.articles.lock().unwrap();
+            a.insert(
+                "LEGIARTI_Code_civil_1140".into(),
+                Ok(ART_1140_ACTUEL.into()),
+            );
+            a.insert("LEGIARTI_1140_2012".into(), Ok(ART_1140_2012.into()));
+        }
+        ext.versions.lock().unwrap().insert(
+            "LEGIARTI_Code_civil_1140".into(),
+            Ok(Some("LEGIARTI_1140_2012".into())),
+        );
+        ext
+    }
+
+    #[tokio::test]
+    async fn quote_of_the_old_wording_is_verified_against_the_version_at_the_date() {
+        let ext = ext_1140();
+        let t = "Le 27 octobre 2012, l'article 1140 du Code civil avait la rédaction suivante : « Les effets de l'obligation de donner ou de livrer un immeuble sont réglés au titre De la vente et au titre Des privilèges et hypothèques ».";
+        // Sans date : comparée au texte actuel, la citation exacte de 2012 paraît fausse.
+        let sans = run(&ext, t, &[], false).await;
+        assert_eq!(only(&sans, Kind::Citation).statut, Statut::Incoherente);
+        // Avec la date des faits : comparée à la rédaction de 2012.
+        let r = run_at(&ext, t, "2012-10-27").await;
+        let v = only(&r, Kind::Citation);
+        assert_eq!(v.statut, Statut::Verifiee, "{:#?}", v);
+        let d = v.detail.as_deref().unwrap();
+        assert!(
+            d.contains("tel quel") && d.contains("rédaction applicable au 27/10/2012"),
+            "{d}"
+        );
+    }
+
+    #[tokio::test]
+    async fn quote_of_the_current_wording_is_flagged_when_the_date_is_earlier() {
+        let ext = ext_1140();
+        let t = "L'article 1140 du Code civil dispose que « Il y a violence lorsqu'une partie s'engage sous la contrainte d'une violence physique ou morale exercée sur elle ».";
+        let r = run_at(&ext, t, "2012-10-27").await;
+        let v = only(&r, Kind::Citation);
+        assert_eq!(v.statut, Statut::Incoherente);
+        let d = v.detail.as_deref().unwrap();
+        assert!(
+            d.contains("version actuelle") && d.contains("27/10/2012"),
+            "{d}"
+        );
+        // Sans date, la même citation est vérifiée (texte actuel).
+        assert_eq!(
+            only(&run(&ext, t, &[], false).await, Kind::Citation).statut,
+            Statut::Verifiee
+        );
+    }
+
+    #[tokio::test]
+    async fn altered_quote_of_the_old_wording_is_approximate_against_the_old_text() {
+        let ext = ext_1140();
+        let t = "L'article 1140 du Code civil disait : « Les effets de l'obligation de donner ou de livrer un immeuble sont régis au titre De la vente et au titre Des privilèges et hypothèques ».";
+        let r = run_at(&ext, t, "2012-10-27").await;
+        assert_eq!(only(&r, Kind::Citation).statut, Statut::Approchante);
+    }
+
+    #[tokio::test]
+    async fn article_not_in_force_at_the_date_cannot_be_quoted() {
+        let ext = ext_1140();
+        ext.versions
+            .lock()
+            .unwrap()
+            .insert("LEGIARTI_Code_civil_1140".into(), Ok(None));
+        let t = "L'article 1140 du Code civil dispose que « Il y a violence lorsqu'une partie s'engage sous la contrainte d'une violence physique ou morale exercée sur elle ».";
+        let v = run_at(&ext, t, "1990-01-01").await;
+        let c = only(&v, Kind::Citation);
+        assert_eq!(c.statut, Statut::Incoherente);
+        assert!(c
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("n'était pas en vigueur au 01/01/1990"));
+    }
+
+    #[tokio::test]
+    async fn unreadable_version_never_falls_back_to_a_verdict_on_the_current_text() {
+        let ext = ext_1140();
+        ext.versions
+            .lock()
+            .unwrap()
+            .insert("LEGIARTI_Code_civil_1140".into(), Err("boom".into()));
+        for t in [
+            // fausse au regard du texte actuel : aucun « ⚠️ » à tort
+            "L'article 1140 du Code civil disait « Les effets de l'obligation de donner ou de livrer un immeuble sont réglés au titre De la vente et au titre Des privilèges et hypothèques ».",
+            // exacte au regard du texte actuel : pas davantage un « ✅ » sur la mauvaise version
+            "L'article 1140 du Code civil dispose que « Il y a violence lorsqu'une partie s'engage sous la contrainte d'une violence physique ou morale exercée sur elle ».",
+        ] {
+            let r = run_at(&ext, t, "2012-10-27").await;
+            let v = only(&r, Kind::Citation);
+            assert_eq!(v.statut, Statut::NonVerifiable, "{t}");
+            assert!(v.detail.as_deref().unwrap().contains("n'a pas pu être lue"));
+        }
+    }
+
     #[tokio::test]
     async fn quotes_are_compared_to_provided_documents_with_positive_verdicts_only() {
         let ext = FakeExt::default();
@@ -3043,6 +3710,9 @@ mod tests {
         taxonomy_calls: Arc<AtomicUsize>,
         taxonomy_down: bool,
         kali_consult_ids: Arc<Mutex<Vec<String>>>,
+        /// `/consult/juri` (documenté pour le seul fonds JURI) refuse les décisions CETAT.
+        consult_juri_unavailable: bool,
+        consulted: Arc<Mutex<Vec<String>>>,
     }
 
     async fn judilibre_taxonomy(
@@ -3052,6 +3722,14 @@ mod tests {
         st.taxonomy_calls.fetch_add(1, Ordering::SeqCst);
         if st.taxonomy_down {
             return (StatusCode::INTERNAL_SERVER_ERROR, "boom").into_response();
+        }
+        if q.get("id").map(String::as_str) == Some("location") {
+            // Spec : `context_value` = `ca` pour les sièges de cours d'appel.
+            assert_eq!(q.get("context_value").map(String::as_str), Some("ca"));
+            return Json(json!({"id": "location", "result": {
+                "ca75056": "Paris", "ca69123": "Lyon", "ca13001": "Aix-en-Provence"
+            }}))
+            .into_response();
         }
         assert_eq!(q.get("id").map(String::as_str), Some("field"));
         Json(json!({"id": "field", "result": {
@@ -3082,7 +3760,35 @@ mod tests {
             )
             .into_response()
         };
+        let jur = q.get("jurisdiction").cloned().unwrap_or_default();
+        let ca_dec = |id: &str, date: &str| {
+            json!({"id": id, "number": "19/01234", "numbers": ["19/01234"], "jurisdiction": "ca",
+                   "chamber": "Chambre sociale", "decision_date": date})
+        };
         match (query.as_str(), targeted) {
+            ("ECLI:FR:CCASS:2024:SO00123", false) if jur == "cc" => {
+                let mut d = decision_json("ecli1", "22-12.345");
+                d["ecli"] = json!("ECLI:FR:CCASS:2024:SO00123");
+                page(vec![d], false)
+            }
+            // Résultat voisin d'un autre ECLI : n'est PAS la décision citée.
+            ("ECLI:FR:CCASS:2024:SO00999", _) => {
+                let mut d = decision_json("other", "22-99.999");
+                d["ecli"] = json!("ECLI:FR:CCASS:2024:SO00001");
+                page(vec![d], true)
+            }
+            ("19/01234", _) if jur == "ca" => {
+                // Spec : `location` filtre sur le siège (clé de la taxonomie `location`).
+                let loc = q.get("location").map(String::as_str);
+                let all = [("ca-paris", "ca75056"), ("ca-lyon", "ca69123")];
+                page(
+                    all.iter()
+                        .filter(|(_, l)| loc.is_none_or(|x| x == *l))
+                        .map(|(id, _)| ca_dec(id, "2021-03-12"))
+                        .collect(),
+                    false,
+                )
+            }
             // Le numéro de pourvoi est une métadonnée : exclue de la recherche sans `field`.
             ("22-12.345", true) => page(vec![decision_json("644f5a3e", "22-12.345")], false),
             // Seule la recherche en texte intégral retrouve celle-ci.
@@ -3135,7 +3841,39 @@ mod tests {
                                "legalStatus": "VIGUEUR",
                                "title": format!("Décret n° {num} du 27 novembre 2020 relatif à X")}]})
         };
+        // Champs du fond CETAT d'après « description-des-tris-et-filtres » : ALL, TITLE, NUM_DEC,
+        // ABSTRATS, TEXTE, RESUMES. NUM_AFFAIRE et ECLI (fond JURI) y sont refusés.
+        if fond == "CETAT"
+            && !["ALL", "TITLE", "NUM_DEC", "ABSTRATS", "TEXTE", "RESUMES"]
+                .contains(&champ.as_str())
+        {
+            return (StatusCode::BAD_REQUEST, "champ inconnu pour ce fond").into_response();
+        }
+        let cetat =
+            |id: &str, title: &str| json!({"titles": [{"id": id, "cid": id, "title": title}]});
+        let ce42 = || {
+            cetat(
+                "CETATEXT000042",
+                "Conseil d'État, 5ème - 6ème chambres réunies, 02/07/2020, 428411, Publié au recueil Lebon",
+            )
+        };
+        let ce43 = || {
+            cetat(
+                "CETATEXT000043",
+                "Conseil d'État, 1ère chambre, 05/01/2021, 111111",
+            )
+        };
         let results: Vec<Value> = match (fond.as_str(), champ.as_str(), valeur.as_str()) {
+            ("CETAT", "NUM_DEC" | "ALL", "428411") => vec![ce43(), ce42()],
+            // Recherche qui ramène une décision VOISINE : son numéro n'est pas celui cité.
+            ("CETAT", "NUM_DEC" | "ALL", "999999" | "111111") => vec![ce43()],
+            ("CETAT", "NUM_DEC", "19NT01234") => vec![cetat(
+                "CETATEXT000044",
+                "CAA de NANTES, 1ère chambre, 12/03/2021, 19NT01234, Inédit au recueil Lebon",
+            )],
+            ("CETAT", "NUM_DEC", "50000") => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "boom").into_response()
+            }
             ("LODA_ETAT", "NUM", "2020-1455") => vec![decret("2020-1455")],
             // « 2018-771 » : seul le texte intégral le retrouve.
             ("LODA_ETAT", "ALL", "2018-771") => vec![decret("2018-771")],
@@ -3164,6 +3902,65 @@ mod tests {
         }
     }
 
+    /// `GET /decision` (schéma `decisionFull`) : chaînage arrière, avant et rapprochements.
+    async fn judilibre_decision(Query(q): Query<HashMap<String, String>>) -> impl IntoResponse {
+        match q.get("id").map(String::as_str) {
+            Some("6500abc") => Json(json!({
+                "id": "6500abc", "jurisdiction": "Cour de cassation", "chamber": "Chambre sociale",
+                "number": "22-12.345", "ecli": "ECLI:FR:CCASS:2024:SO00123",
+                "decision_date": "2024-03-12", "solution": "Cassation",
+                "contested": {"id": "6400def", "title": "Arrêt du 5 mai 2022", "date": "2022-05-05",
+                    "jurisdiction": "Cour d'appel", "location": "Cour d'appel de Paris", "number": "19/01234"},
+                "forward": {"id": "6600ghi", "title": "Arrêt sur renvoi", "date": "2025-01-15",
+                    "jurisdiction": "Cour d'appel", "location": "Cour d'appel de Lyon"},
+                "rapprochements": [{"id": "6300aaa", "title": "Soc., 10 mars 2020", "date": "2020-03-10",
+                    "jurisdiction": "Cour de cassation"}]
+            }))
+            .into_response(),
+            Some("6bad") => Json(json!({"message": "réponse sans identifiant"})).into_response(),
+            _ => (StatusCode::NOT_FOUND, "inconnue").into_response(),
+        }
+    }
+
+    /// `POST /consult/juri` (schéma `TexteSimple`).
+    async fn consult_juri(State(st): State<Mock>, Json(body): Json<Value>) -> impl IntoResponse {
+        let Some(id) = body["textId"].as_str() else {
+            return (StatusCode::BAD_REQUEST, "propriété `textId` requise").into_response();
+        };
+        st.consulted.lock().unwrap().push(id.to_string());
+        if st.consult_juri_unavailable {
+            return (StatusCode::NOT_FOUND, "texte du fonds CETAT non géré").into_response();
+        }
+        let text = match id {
+            "JURITEXT000099" => json!({
+                "titre": "Cour d'appel de Nancy, 12 mars 2021", "juridiction": "Cour d'appel",
+                "natureJuridiction": "Cour d'appel", "numeroAffaire": ["19/01234"],
+                "dateTexte": "2021-03-12T00:00:00.000+0000",
+                "decisionAttaquee": {"date": "2019-01-07T00:00:00.000+0000", "formation": "Conseil de prud'hommes"},
+                "liens": [{"id": "JURITEXT000041", "title": "Cour de cassation, 5 mai 2022",
+                           "typeLien": "CITATION", "sens": "cible"}]
+            }),
+            "CETATEXT000042" => json!({
+                "titre": "Conseil d'État, 5ème - 6ème chambres réunies, 02/07/2020, 428411, Publié au recueil Lebon",
+                "juridiction": "CONSEIL D'ETAT", "formation": "5ème - 6ème chambres réunies",
+                "solution": "Annulation", "numeroAffaire": ["428411"],
+                "ecli": "ECLI:FR:CECHR:2020:428411.20200702", "dateTexte": "2020-07-02T00:00:00.000+0000"
+            }),
+            "CETATEXT000043" => json!({
+                "titre": "Conseil d'État, 1ère chambre, 05/01/2021, 111111",
+                "juridiction": "CONSEIL D'ETAT", "numeroAffaire": ["111111"],
+                "ecli": "ECLI:FR:CECHR:2021:111111.20210105", "dateTexte": "2021-01-05T00:00:00.000+0000"
+            }),
+            "CETATEXT000044" => json!({
+                "titre": "CAA de NANTES, 12/03/2021, 19NT01234",
+                "juridiction": "COUR ADMINISTRATIVE D'APPEL DE NANTES", "numeroAffaire": ["19NT01234"],
+                "dateTexte": 1615503600000i64
+            }),
+            _ => return (StatusCode::NOT_FOUND, "inconnu").into_response(),
+        };
+        Json(json!({"text": text})).into_response()
+    }
+
     async fn get_article(Json(body): Json<Value>) -> impl IntoResponse {
         if body["id"] == "LEGIARTI1" {
             Json(json!({"article": {"id": "LEGIARTI1", "texte": "<p>Texte de l'article</p>"}}))
@@ -3181,9 +3978,11 @@ mod tests {
             )
             .route("/judilibre/taxonomy", get(judilibre_taxonomy))
             .route("/judilibre/search", get(judilibre_search))
+            .route("/judilibre/decision", get(judilibre_decision))
             .route("/legifrance/search", post(legifrance_search))
             .route("/legifrance/consult/kaliContIdcc", post(kali_idcc))
             .route("/legifrance/consult/getArticle", post(get_article))
+            .route("/legifrance/consult/juri", post(consult_juri))
             .with_state(st);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -3762,6 +4561,10 @@ mod tests {
                 "/verifier-citations",
                 verifier_citations_route::<TestState>(),
             )
+            .route(
+                "/decision/:id/fiche",
+                get(super::super::routes::get_decision_fiche::<TestState>),
+            )
             .with_state(Arc::new(TestState { js }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -3851,6 +4654,573 @@ mod tests {
         assert_eq!(body["verifications"][0]["statut"], "verifiee");
     }
 
+    // ── ECLI, Conseil d'État, juridictions administratives, cours d'appel ─────
+
+    fn ce_info(date: &str) -> DecisionInfo {
+        DecisionInfo {
+            id: "CETATEXT000042".into(),
+            number: "428411".into(),
+            chamber: Some("5ème - 6ème chambres réunies".into()),
+            date: Some(date.into()),
+            solution: Some("Annulation".into()),
+            source: Some("Légifrance".into()),
+            url: Some("https://www.legifrance.gouv.fr/ceta/id/CETATEXT000042".into()),
+            ..Default::default()
+        }
+    }
+
+    fn found(ext: &FakeExt, id: &str, info: DecisionInfo) {
+        ext.decisions
+            .lock()
+            .unwrap()
+            .insert(id.into(), Ok(DecisionLookup::Trouvee(info)));
+    }
+
+    #[tokio::test]
+    async fn a_conseil_d_etat_decision_is_verified_with_its_identity() {
+        let ext = FakeExt::default();
+        found(&ext, "428411", ce_info("2020-07-02"));
+        let r = run(&ext, "Voir CE, 2 juillet 2020, n° 428411.", &[], false).await;
+        let v = only(&r, Kind::Decision);
+        assert_eq!(v.statut, Statut::Verifiee, "{v:#?}");
+        assert_eq!(
+            v.url.as_deref(),
+            Some("https://www.legifrance.gouv.fr/ceta/id/CETATEXT000042")
+        );
+        assert!(v
+            .infos
+            .iter()
+            .any(|i| i.starts_with("Conseil d'État — 5ème")));
+        assert!(v.infos.iter().any(|i| i.contains("02/07/2020")));
+        assert!(v.infos.iter().any(|i| i.contains("Source : Légifrance")));
+    }
+
+    #[tokio::test]
+    async fn a_wrong_date_on_a_real_conseil_d_etat_decision_is_incoherent() {
+        let ext = FakeExt::default();
+        found(&ext, "428411", ce_info("2020-07-02"));
+        let r = run(&ext, "CE, 3 juillet 2020, n° 428411", &[], false).await;
+        let v = only(&r, Kind::Decision);
+        assert_eq!(v.statut, Statut::Incoherente);
+        assert!(v.detail.as_deref().unwrap().contains("03/07/2020"));
+    }
+
+    #[tokio::test]
+    async fn an_invented_decision_is_never_presented_as_verified() {
+        let ext = FakeExt::default(); // tout est « introuvable »
+        let text = "CE, 2 juillet 2020, n° 428411 ; CAA Nantes, 12 mars 2021, n° 19NT01234 ; \
+                    CA Paris, 12 mars 2021, RG n° 19/01234 ; ECLI:FR:CCASS:2024:SO00123.";
+        let r = run(&ext, text, &[], false).await;
+        let ds: Vec<&Verification> = r
+            .verifications
+            .iter()
+            .filter(|v| v.kind == Kind::Decision)
+            .collect();
+        assert_eq!(ds.len(), 4, "{ds:#?}");
+        for v in ds {
+            assert_eq!(v.statut, Statut::NonRetrouvee, "{v:#?}");
+            assert_ne!(v.existe, Some(true));
+            assert!(v.detail.as_deref().unwrap().contains("à vérifier"));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_uncertain_appeal_decision_gets_no_verdict() {
+        let ext = FakeExt::default();
+        ext.decisions.lock().unwrap().insert(
+            "19/01234".into(),
+            Ok(DecisionLookup::Incertaine {
+                raison: "RG partagé par plusieurs cours.".into(),
+            }),
+        );
+        let r = run(&ext, "CA Paris, 12 mars 2021, RG n° 19/01234", &[], false).await;
+        let v = only(&r, Kind::Decision);
+        assert_eq!((v.statut, v.existe), (Statut::NonRetrouvee, None));
+        assert_eq!(v.detail.as_deref(), Some("RG partagé par plusieurs cours."));
+    }
+
+    #[tokio::test]
+    async fn a_lookup_failure_is_an_error_not_a_verdict() {
+        let ext = FakeExt::default();
+        ext.decisions
+            .lock()
+            .unwrap()
+            .insert("428411".into(), Err("HTTP 500".into()));
+        let r = run(&ext, "CE, 2 juillet 2020, n° 428411", &[], false).await;
+        let v = only(&r, Kind::Decision);
+        assert_eq!(v.statut, Statut::Erreur);
+        assert!(v.detail.as_deref().unwrap().contains("Légifrance"));
+    }
+
+    #[tokio::test]
+    async fn an_ecli_of_an_unqueried_court_is_flagged_without_any_call() {
+        let ext = FakeExt::default();
+        let text = "ECLI:FR:CC:2020:2020.800.DC et ECLI:EU:C:2020:559";
+        let r = run(&ext, text, &[], false).await;
+        assert_eq!(ext.calls.load(Ordering::SeqCst), 0);
+        let ds: Vec<&Verification> = r
+            .verifications
+            .iter()
+            .filter(|v| v.kind == Kind::Decision)
+            .collect();
+        assert_eq!(ds.len(), 2);
+        for v in ds {
+            assert_eq!(v.statut, Statut::NonVerifiable);
+            assert!(v
+                .detail
+                .as_deref()
+                .unwrap()
+                .starts_with("Non vérifiée par Juridix"));
+        }
+        let er = extract_ext_refs(text);
+        assert!(
+            !needs_network(&er, &[], &[], text, false),
+            "aucun appel PISTE requis"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unqueried_ecli_says_where_to_check_it() {
+        let ext = FakeExt::default();
+        let text =
+            "ECLI:EU:C:2020:559 ; ECLI:CE:ECHR:2020:0101JUD000000 ; ECLI:FR:CC:2020:2020.800.DC";
+        let r = run(&ext, text, &[], false).await;
+        let d: Vec<&str> = r
+            .verifications
+            .iter()
+            .filter(|v| v.kind == Kind::Decision)
+            .map(|v| v.detail.as_deref().unwrap())
+            .collect();
+        assert_eq!(d.len(), 3, "{d:?}");
+        assert!(d[0].contains("EUR-Lex"), "{}", d[0]);
+        assert!(d[1].contains("HUDOC"), "{}", d[1]);
+        assert!(d[2].contains("conseil-constitutionnel.fr"), "{}", d[2]);
+        assert!(d.iter().all(|x| x.contains("ni confirmée ni infirmée")));
+    }
+
+    #[tokio::test]
+    async fn an_ecli_found_under_its_pourvoi_number_in_the_sources_is_anchored() {
+        let ext = FakeExt::default();
+        found(
+            &ext,
+            "ECLI:FR:CCASS:2024:SO00123",
+            info("Chambre sociale", "2024-03-12"),
+        );
+        let sources = vec!["Arrêt Cass. soc., 12 mars 2024, pourvoi n° 22-12.345".to_string()];
+        let r = run(&ext, "ECLI:FR:CCASS:2024:SO00123", &sources, true).await;
+        let v = only(&r, Kind::Decision);
+        assert_eq!(v.statut, Statut::Verifiee);
+        assert_eq!(v.ancrage, Some(Ancrage::DansSources));
+        // Une décision absente des sources reste « hors sources ».
+        let r = run(
+            &ext,
+            "ECLI:FR:CCASS:2024:SO00123",
+            &["autre chose".to_string()],
+            true,
+        )
+        .await;
+        assert_eq!(only(&r, Kind::Decision).ancrage, Some(Ancrage::HorsSources));
+    }
+
+    #[tokio::test]
+    async fn the_cache_key_of_an_appeal_decision_depends_on_its_date_and_seat() {
+        let q = |date: &str, place: &str| DecisionQuery {
+            court: Court::CourAppel,
+            number: Some("19/01234".into()),
+            display: "19/01234".into(),
+            ecli: None,
+            date: Some(date.into()),
+            place: Some(place.into()),
+        };
+        assert_ne!(
+            q("2021-03-12", "Paris").cache_key(),
+            q("2021-03-12", "Lyon").cache_key()
+        );
+        assert_ne!(
+            q("2021-03-12", "Paris").cache_key(),
+            q("2021-03-13", "Paris").cache_key()
+        );
+        assert_eq!(
+            q("2021-03-12", "PARIS").cache_key(),
+            q("2021-03-12", "Paris").cache_key()
+        );
+    }
+
+    // ── Adaptateur PISTE contre le faux serveur : nouvelles juridictions ─────
+
+    fn cq(court: Court, number: Option<&str>, ecli: Option<&str>) -> DecisionQuery {
+        DecisionQuery {
+            court,
+            number: number.map(String::from),
+            display: number.unwrap_or("").into(),
+            ecli: ecli.map(String::from),
+            date: None,
+            place: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn adapter_conseil_d_etat_is_identified_by_its_title_and_confirmed_by_reading() {
+        let st = Mock::default();
+        let p = piste(&st).await;
+        match p
+            .decision_ref(&cq(Court::ConseilEtat, Some("428411"), None))
+            .await
+            .unwrap()
+        {
+            DecisionLookup::Trouvee(i) => {
+                assert_eq!(
+                    i.id, "CETATEXT000042",
+                    "le candidat 000043 (n° 111111) est écarté"
+                );
+                assert_eq!(i.date.as_deref(), Some("2020-07-02"));
+                assert_eq!(i.chamber.as_deref(), Some("5ème - 6ème chambres réunies"));
+                assert_eq!(
+                    i.solution.as_deref(),
+                    Some("Annulation"),
+                    "enrichi par la lecture"
+                );
+                assert_eq!(i.note, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Une recherche qui ramène seulement une décision VOISINE n'est pas une vérification.
+        let none = p
+            .decision_ref(&cq(Court::ConseilEtat, Some("999999"), None))
+            .await
+            .unwrap();
+        assert_eq!(none, DecisionLookup::Introuvable);
+        // Une erreur de l'API n'est jamais un verdict.
+        assert!(p
+            .decision_ref(&cq(Court::ConseilEtat, Some("50000"), None))
+            .await
+            .is_err());
+        // D'après la spec, le numéro se cherche dans NUM_DEC sur le fond CETAT.
+        let b = st.legifrance_bodies.lock().unwrap();
+        assert_eq!(b[0]["fond"], "CETAT");
+        assert_eq!(b[0]["recherche"]["champs"][0]["typeChamp"], "NUM_DEC");
+        // Le candidat voisin (titre d'un autre numéro) n'est même pas lu.
+        assert!(!st
+            .consulted
+            .lock()
+            .unwrap()
+            .contains(&"CETATEXT000043".to_string()));
+    }
+
+    #[tokio::test]
+    async fn adapter_conseil_d_etat_is_verified_even_if_consult_juri_refuses_cetat_texts() {
+        // `/consult/juri` est documenté pour le seul fonds JURI : la vérification ne doit
+        // pas en dépendre.
+        let st = Mock {
+            consult_juri_unavailable: true,
+            ..Mock::default()
+        };
+        let p = piste(&st).await;
+        match p
+            .decision_ref(&cq(Court::ConseilEtat, Some("428411"), None))
+            .await
+            .unwrap()
+        {
+            DecisionLookup::Trouvee(i) => {
+                assert_eq!(i.id, "CETATEXT000042");
+                assert_eq!(i.date.as_deref(), Some("2020-07-02"));
+                assert_eq!(i.solution, None, "pas de lecture : pas de solution");
+            }
+            other => panic!("{other:?}"),
+        }
+        // Une ECLI est alors rapprochée du numéro et de la date qu'elle porte, et le dit.
+        let q = cq(
+            Court::ConseilEtat,
+            None,
+            Some("ECLI:FR:CECHR:2020:428411.20200702"),
+        );
+        match p.decision_ref(&q).await.unwrap() {
+            DecisionLookup::Trouvee(i) => {
+                assert!(i.note.as_deref().unwrap().contains("n'a pas pu être lue"))
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn adapter_administrative_appeal_court_checks_the_court_of_the_decision() {
+        let p = piste(&Mock::default()).await;
+        match p
+            .decision_ref(&cq(Court::CourAdminAppel, Some("19NT01234"), None))
+            .await
+            .unwrap()
+        {
+            DecisionLookup::Trouvee(i) => assert_eq!(i.date.as_deref(), Some("2021-03-12")),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn adapter_ecli_of_the_conseil_d_etat_is_matched_on_its_number_and_date() {
+        let st = Mock::default();
+        let p = piste(&st).await;
+        let q = cq(
+            Court::ConseilEtat,
+            None,
+            Some("ECLI:FR:CECHR:2020:428411.20200702"),
+        );
+        match p.decision_ref(&q).await.unwrap() {
+            DecisionLookup::Trouvee(i) => {
+                assert_eq!(i.id, "CETATEXT000042");
+                // Lue : l'ECLI de la décision est celui cité.
+                assert_eq!(
+                    i.ecli.as_deref(),
+                    Some("ECLI:FR:CECHR:2020:428411.20200702")
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        // Même numéro, autre date : l'ECLI cité ne désigne aucune décision retrouvée.
+        let q = cq(
+            Court::ConseilEtat,
+            None,
+            Some("ECLI:FR:CECHR:2021:428411.20210702"),
+        );
+        assert_eq!(
+            p.decision_ref(&q).await.unwrap(),
+            DecisionLookup::Introuvable
+        );
+        // ECLI de forme inconnue : recherche en texte intégral, rien à rapprocher.
+        let q = cq(Court::ConseilEtat, None, Some("ECLI:FR:CECHR:2020:ABC"));
+        assert_eq!(
+            p.decision_ref(&q).await.unwrap(),
+            DecisionLookup::Introuvable
+        );
+        // Jamais un champ que le fond CETAT ne propose pas (le faux serveur répondrait 400).
+        let champs: Vec<String> = st
+            .legifrance_bodies
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|b| {
+                b["recherche"]["champs"][0]["typeChamp"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            champs.iter().all(|c| c == "NUM_DEC" || c == "ALL"),
+            "{champs:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn adapter_ecli_of_the_cour_de_cassation_requires_the_exact_ecli() {
+        let st = Mock::default();
+        let p = piste(&st).await;
+        match p
+            .decision_ref(&cq(
+                Court::Cassation,
+                None,
+                Some("ECLI:FR:CCASS:2024:SO00123"),
+            ))
+            .await
+            .unwrap()
+        {
+            DecisionLookup::Trouvee(i) => {
+                assert_eq!(i.id, "ecli1");
+                assert_eq!(i.ecli.as_deref(), Some("ECLI:FR:CCASS:2024:SO00123"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // Judilibre renvoie une décision voisine : jamais « vérifiée ».
+        let none = p
+            .decision_ref(&cq(
+                Court::Cassation,
+                None,
+                Some("ECLI:FR:CCASS:2024:SO00999"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(none, DecisionLookup::Introuvable);
+        let qs = st.judilibre_queries.lock().unwrap();
+        assert!(qs.iter().all(|q| q["jurisdiction"] == "cc"));
+    }
+
+    #[tokio::test]
+    async fn adapter_appeal_court_rg_is_narrowed_by_date_and_seat_filter() {
+        let st = Mock::default();
+        let p = piste(&st).await;
+        let mut q = cq(Court::CourAppel, Some("19/01234"), None);
+        q.date = Some("2021-03-12".into());
+        q.place = Some("Lyon".into());
+        match p.decision_ref(&q).await.unwrap() {
+            DecisionLookup::Trouvee(i) => assert_eq!(i.id, "ca-lyon"),
+            other => panic!("{other:?}"),
+        }
+        // Le siège a été appliqué comme filtre `location` (clé de la taxonomie), pas deviné.
+        let qs = st.judilibre_queries.lock().unwrap().clone();
+        assert!(qs
+            .iter()
+            .any(|x| x.get("location").map(String::as_str) == Some("ca69123")));
+        assert!(qs.iter().all(|x| x["jurisdiction"] == "ca"));
+        // Date inexacte : pas de verdict.
+        q.date = Some("2019-01-01".into());
+        assert!(matches!(
+            p.decision_ref(&q).await.unwrap(),
+            DecisionLookup::Incertaine { .. }
+        ));
+        // Siège cité sans arrêt de ce numéro dans ce siège : autre cour d'appel.
+        q.date = None;
+        q.place = Some("Aix-en-Provence".into());
+        assert!(matches!(
+            p.decision_ref(&q).await.unwrap(),
+            DecisionLookup::Incertaine { .. }
+        ));
+        // Siège identifié, sans date : l'arrêt du siège cité suffit.
+        q.place = Some("Paris".into());
+        match p.decision_ref(&q).await.unwrap() {
+            DecisionLookup::Trouvee(i) => assert_eq!(i.id, "ca-paris"),
+            other => panic!("{other:?}"),
+        }
+        // Ni date ni siège : jamais vérifiée.
+        q.place = None;
+        assert!(matches!(
+            p.decision_ref(&q).await.unwrap(),
+            DecisionLookup::Incertaine { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn handler_end_to_end_new_courts_have_distinct_visible_statuses() {
+        let st = Mock::default();
+        let base = spawn(st.clone()).await;
+        let js = JuridiqueState::new(None, None);
+        *js.piste_client.write().await = Some(PisteClient::new_for_test(&base));
+        let api = spawn_api(js).await;
+        let texte = "CE, 2 juillet 2020, n° 428411 ; CE, 4 mai 2021, n° 999999 ; \
+                     ECLI:FR:CCASS:2024:SO00123 ; ECLI:FR:CCASS:2024:SO00999 ; \
+                     CA Paris, 12 mars 2021, RG n° 19/01234 ; ECLI:FR:CC:2020:2020.800.DC.";
+        let (status, body) = post_json(&api, json!({ "texte": texte })).await;
+        assert_eq!(status, 200);
+        let v = body["verifications"].as_array().unwrap();
+        let by = |needle: &str| -> &Value {
+            v.iter()
+                .find(|x| {
+                    x["kind"] == "decision" && x["reference"].as_str().unwrap().contains(needle)
+                })
+                .unwrap_or_else(|| panic!("{needle} : {v:#?}"))
+        };
+        assert_eq!(by("428411")["statut"], "verifiee");
+        assert_eq!(
+            by("428411")["url"],
+            "https://www.legifrance.gouv.fr/ceta/id/CETATEXT000042"
+        );
+        assert_eq!(by("999999")["statut"], "non_retrouvee");
+        assert_eq!(by("SO00123")["statut"], "verifiee");
+        assert_eq!(by("SO00999")["statut"], "non_retrouvee");
+        assert_eq!(by("19/01234")["statut"], "verifiee");
+        assert_eq!(by("2020.800.DC")["statut"], "non_verifiable");
+        // Aucune référence inventée n'est « vérifiée » ni « introuvable ».
+        for x in v.iter().filter(|x| x["kind"] == "decision") {
+            if x["statut"] != "verifiee" {
+                assert_ne!(x["existe"], true);
+            }
+            assert_ne!(x["statut"], "introuvable");
+        }
+    }
+
+    // ── Fiche d'une décision : rapprochements et provenance ───────────────────
+
+    async fn get_fiche(api: &str, id: &str) -> (u16, Value) {
+        let res = reqwest::Client::new()
+            .get(format!("{api}/decision/{id}/fiche"))
+            .send()
+            .await
+            .unwrap();
+        (
+            res.status().as_u16(),
+            res.json().await.unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_fiche_route_gives_the_links_of_a_judilibre_decision_with_their_provenance() {
+        let st = Mock::default();
+        let base = spawn(st.clone()).await;
+        let js = JuridiqueState::new(None, None);
+        *js.piste_client.write().await = Some(PisteClient::new_for_test(&base));
+        let api = spawn_api(js).await;
+
+        let (status, f) = get_fiche(&api, "6500abc").await;
+        assert_eq!(status, 200, "{f}");
+        assert_eq!(f["source"], "Judilibre");
+        assert_eq!(f["niveau"], "cassation");
+        let r = f["rapprochements"].as_array().unwrap();
+        let rel: Vec<(&str, &str)> = r
+            .iter()
+            .map(|x| {
+                (
+                    x["relation"].as_str().unwrap(),
+                    x["provenance"]["champ"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rel,
+            [
+                ("decision_attaquee", "contested"),
+                ("decision_suivante", "forward"),
+                ("rapprochement", "rapprochements")
+            ]
+        );
+        assert_eq!(r[0]["niveau"], "fond");
+        assert_eq!(r[1]["chronologie"], "posterieure");
+        assert!(f["indisponibles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["element"] == "revirements"));
+    }
+
+    #[tokio::test]
+    async fn the_fiche_route_reads_legifrance_decisions_and_rejects_bad_requests() {
+        let st = Mock::default();
+        let base = spawn(st.clone()).await;
+        let js = JuridiqueState::new(None, None);
+        *js.piste_client.write().await = Some(PisteClient::new_for_test(&base));
+        let api = spawn_api(js).await;
+
+        let (status, f) = get_fiche(&api, "JURITEXT000099").await;
+        assert_eq!(status, 200, "{f}");
+        assert_eq!(f["source"], "Légifrance");
+        assert_eq!(f["niveau"], "fond");
+        assert_eq!(f["rapprochements"][1]["provenance"]["champ"], "liens");
+        assert_eq!(f["rapprochements"][1]["type_lien"], "CITATION");
+        // Réponse de la source sans la forme attendue : jamais une fiche vide.
+        let (status, _) = get_fiche(&api, "6bad").await;
+        assert_eq!(status, 502);
+        // Identifiant non alphanumérique : rien ne part vers l'API.
+        let (status, _) = get_fiche(&api, "a%2Fb%3Fx").await;
+        assert_eq!(status, 400);
+    }
+
+    #[tokio::test]
+    async fn a_verified_decision_carries_the_id_of_its_fiche() {
+        let ext = FakeExt::default();
+        found(&ext, "428411", ce_info("2020-07-02"));
+        let r = run(&ext, "CE, 2 juillet 2020, n° 428411", &[], false).await;
+        assert_eq!(
+            only(&r, Kind::Decision).decision_id.as_deref(),
+            Some("CETATEXT000042")
+        );
+        // Non retrouvée : pas de fiche à proposer.
+        let r = run(
+            &FakeExt::default(),
+            "CE, 2 juillet 2020, n° 428411",
+            &[],
+            false,
+        )
+        .await;
+        assert_eq!(only(&r, Kind::Decision).decision_id, None);
+    }
+
     // ── Test réel (manuel) ───────────────────────────────────────────────────
 
     /// Contrôle contre la vraie API PISTE. Ignoré par défaut : il exige des identifiants
@@ -3910,6 +5280,119 @@ mod tests {
             .await
             .expect("appel Judilibre");
         println!("pourvoi inexistant → {none:?}");
+    }
+
+    /// Contrôle réel des nouvelles juridictions. À lancer avant chaque release :
+    ///
+    /// ```text
+    /// PISTE_CLIENT_ID=… PISTE_CLIENT_SECRET=… \
+    /// JURIDIX_LIVE_CE="428411" JURIDIX_LIVE_ECLI_CCASS="ECLI:FR:CCASS:…" \
+    /// JURIDIX_LIVE_ECLI_CE="ECLI:FR:CECHR:…" JURIDIX_LIVE_RG="19/01234" JURIDIX_LIVE_RG_DATE="2021-03-12" \
+    /// cargo test --lib live_piste_juridictions -- --ignored --nocapture
+    /// ```
+    ///
+    /// Chaque variable est facultative. Mettez-y des références réelles : ce test vérifie
+    /// que la recherche (NUM_DEC sur CETAT, ECLI Judilibre, filtre location) et la forme des réponses réelles
+    /// permettent bien de retrouver la décision.
+    #[tokio::test]
+    #[ignore = "nécessite des identifiants PISTE et des références réelles"]
+    async fn live_piste_juridictions() {
+        let (Ok(id), Ok(secret)) = (
+            std::env::var("PISTE_CLIENT_ID"),
+            std::env::var("PISTE_CLIENT_SECRET"),
+        ) else {
+            panic!("PISTE_CLIENT_ID et PISTE_CLIENT_SECRET requis");
+        };
+        let p = PisteExt::new(PisteClient::new(id, secret).unwrap());
+        let env = |k: &str| std::env::var(k).ok();
+        let q = |court, number: Option<String>, ecli: Option<String>| DecisionQuery {
+            court,
+            display: number.clone().unwrap_or_default(),
+            number,
+            ecli,
+            date: env("JURIDIX_LIVE_RG_DATE"),
+            place: None,
+        };
+        let mut checks: Vec<(&str, DecisionQuery)> = Vec::new();
+        if let Some(n) = env("JURIDIX_LIVE_CE") {
+            checks.push(("CE", q(Court::ConseilEtat, Some(n), None)));
+        }
+        if let Some(e) = env("JURIDIX_LIVE_ECLI_CCASS") {
+            checks.push((
+                "ECLI Cass.",
+                q(Court::Cassation, None, Some(e.to_uppercase())),
+            ));
+        }
+        if let Some(e) = env("JURIDIX_LIVE_ECLI_CE") {
+            checks.push((
+                "ECLI CE",
+                q(Court::ConseilEtat, None, Some(e.to_uppercase())),
+            ));
+        }
+        if let Some(n) = env("JURIDIX_LIVE_RG") {
+            checks.push(("RG", q(Court::CourAppel, Some(n), None)));
+        }
+        for (name, query) in checks {
+            let res = p.decision_ref(&query).await.expect("appel PISTE");
+            println!("{name} → {res:#?}");
+            assert!(
+                matches!(res, DecisionLookup::Trouvee(_)),
+                "{name} non retrouvée"
+            );
+        }
+        // Références inventées : « non retrouvée », jamais « vérifiée », jamais une erreur.
+        for query in [
+            q(Court::ConseilEtat, Some("999998".into()), None),
+            q(
+                Court::Cassation,
+                None,
+                Some("ECLI:FR:CCASS:1999:SO99999".into()),
+            ),
+        ] {
+            let res = p.decision_ref(&query).await.expect("appel PISTE");
+            println!("inventée → {res:?}");
+            assert!(!matches!(res, DecisionLookup::Trouvee(_)));
+        }
+    }
+
+    /// Contrôle réel de la fiche d'une décision (rapprochements fournis par les API) :
+    ///
+    /// ```text
+    /// PISTE_CLIENT_ID=… PISTE_CLIENT_SECRET=… JURIDIX_LIVE_FICHE_IDS="<id Judilibre>,JURITEXT…" \
+    /// cargo test --lib live_piste_fiche -- --ignored --nocapture
+    /// ```
+    ///
+    /// Affiche chaque fiche : vérifiez que `contested`, `forward` et `rapprochements`
+    /// (Judilibre) ou `liens` (Légifrance) sont bien lus sur de vraies réponses.
+    #[tokio::test]
+    #[ignore = "nécessite des identifiants PISTE et des identifiants de décisions réels"]
+    async fn live_piste_fiche() {
+        use crate::juridique::jurisprudence::{
+            fiche_judilibre, fiche_legifrance, is_legifrance_id,
+        };
+        let (Ok(id), Ok(secret), Ok(ids)) = (
+            std::env::var("PISTE_CLIENT_ID"),
+            std::env::var("PISTE_CLIENT_SECRET"),
+            std::env::var("JURIDIX_LIVE_FICHE_IDS"),
+        ) else {
+            panic!("PISTE_CLIENT_ID, PISTE_CLIENT_SECRET et JURIDIX_LIVE_FICHE_IDS requis");
+        };
+        let client = PisteClient::new(id, secret).unwrap();
+        for id in ids.split(',').map(str::trim).filter(|i| !i.is_empty()) {
+            let fiche = if is_legifrance_id(id) {
+                let v = legifrance::get_juri(&client, id)
+                    .await
+                    .expect("appel Légifrance");
+                fiche_legifrance(id, &v)
+            } else {
+                let v = judilibre::get_decision(&client, id, true, None, None)
+                    .await
+                    .expect("appel Judilibre");
+                fiche_judilibre(&v)
+            };
+            println!("{id} → {fiche:#?}");
+            assert!(fiche.is_some(), "{id} : réponse de forme inattendue");
+        }
     }
 
     // ── Clés d'ancrage ───────────────────────────────────────────────────────
