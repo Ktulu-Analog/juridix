@@ -24,7 +24,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 
 # HTTP server
-axum = { version = "0.7", features = ["multipart"] }
+axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
