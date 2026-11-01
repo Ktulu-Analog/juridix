@@ -130,6 +130,47 @@ export interface ChatStreamMessage {
   [key: string]: unknown;
 }
 
+/** Texte affiché quand le modèle termine son tour sans aucun texte (sortie vide). */
+export const EMPTY_REPLY_NOTICE =
+  "⚠️ Le modèle n'a renvoyé aucune réponse (sortie vide). Il a peut-être épuisé ses tours d'outils : reformulez ou réessayez.";
+
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map(p => (p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : '')).join('');
+  }
+  return '';
+}
+
+/**
+ * Message d'assistant qui n'est pas une vraie réponse : vide (sortie silencieuse, flux
+ * interrompu), erreur affichée (« ❌ … ») ou avis de sortie vide. Les renvoyer au serveur
+ * fait échouer le tour suivant (« Assistant message must have either content or tool_calls »).
+ */
+export function isFailedAssistantMessage(m: { role: string; content: unknown }): boolean {
+  if (m.role !== 'assistant') return false;
+  const t = messageText(m.content).trim();
+  return t === '' || t.startsWith('❌') || t.startsWith(EMPTY_REPLY_NOTICE.slice(0, 24));
+}
+
+/**
+ * Historique à envoyer au modèle, sans les échanges qui ont échoué : un message d'assistant
+ * vide ou en erreur est écarté AVEC la question à laquelle il répondait (sinon deux messages
+ * utilisateur se suivraient, ce que certains serveurs refusent). L'affichage de la
+ * conversation, lui, n'est pas modifié.
+ */
+export function cleanHistoryForApi<T extends { role: string; content: unknown }>(history: T[]): T[] {
+  const out: T[] = [];
+  for (const m of history) {
+    if (isFailedAssistantMessage(m)) {
+      if (out.length > 0 && out[out.length - 1].role === 'user') out.pop();
+      continue;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
 export interface ChatStreamUsage {
   promptTokens: number;
   completionTokens: number;
@@ -186,7 +227,7 @@ export function useChatStream(
       const res = await fetch(`${API_BASE}/api-proxy/api/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
         body: JSON.stringify({
-          messages: opts.historyForApi,
+          messages: cleanHistoryForApi(opts.historyForApi),
           model: opts.model,
           stream: true,
           space_id: opts.spaceId ?? null,
@@ -273,7 +314,19 @@ export function useChatStream(
       if ((err as Error).name !== 'AbortError') setMessages(prev => { const m = [...prev]; m[m.length-1] = { role: 'assistant', content: `❌ ${(err as Error).message}`, streaming: false }; return m; });
     } finally {
       abortControllerRef.current = null;
-      setMessages(prev => { const m = [...prev]; const last = m[m.length-1]; if (last?.role === 'assistant') m[m.length-1] = { ...last, streaming: false }; return m; });
+      // Fin de flux sans aucun texte (sortie silencieuse) : on le dit au lieu de laisser une
+      // bulle vide ; ce message est ensuite écarté de l'historique renvoyé au serveur.
+      const silent = ok && !finalContent.trim();
+      setMessages(prev => {
+        const m = [...prev];
+        const last = m[m.length-1];
+        if (last?.role !== 'assistant') return m;
+        const empty = typeof last.content === 'string' ? !last.content.trim() : !messageText(last.content).trim();
+        m[m.length-1] = silent && empty
+          ? { ...last, content: EMPTY_REPLY_NOTICE, streaming: false }
+          : { ...last, streaming: false };
+        return m;
+      });
       setLoading(false);
     }
     return ok && finalContent ? finalContent : null;

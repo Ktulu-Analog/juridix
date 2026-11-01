@@ -1208,6 +1208,14 @@ function AppInner() {
                       {artifactsOpen && activeArtifacts.length > 0 && (
                         <button className="jur-btn-link" onClick={closeArtifacts}>← Revenir au chat</button>
                       )}
+                      {messages.length > 0 && (
+                        <button
+                          className="jur-btn-link"
+                          type="button"
+                          title="Vider la conversation et repartir sur une nouvelle"
+                          onClick={() => { stopStreaming(); newConversation(); }}
+                        >🗑 Nouvelle conversation</button>
+                      )}
                       <button className="jur-btn-icon jur-btn-icon--xs" title="Fermer" onClick={() => setChatOverlayOpen(false)}>✕</button>
                     </div>
                   </div>

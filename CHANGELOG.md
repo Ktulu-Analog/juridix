@@ -25,6 +25,8 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Ajouté
 
+- **Modale de chat : bouton « Nouvelle conversation »** dans l'en-tête (interrompt la réponse en cours et
+  repart sur une conversation vide).
 - **Modale de chat (assistant IA)** : redimensionnable par ses quatre bords et ses quatre coins (taille
   minimale 380 × 320, taille mémorisée, double-clic sur l'en-tête pour revenir à la position et à la taille
   par défaut) ; zone de saisie compactée (une ligne, barre d'outils unique : le sélecteur « Droit applicable à
@@ -116,6 +118,11 @@ et ce projet adhère au [Versioning Sémantique](https://semver.org/lang/fr/).
 
 ### Corrigé
 
+- **Chat : « Assistant message must have either content or tool_calls »** : un tour sans texte (sortie
+  silencieuse du modèle, flux interrompu) laissait une bulle vide qui était ensuite renvoyée au serveur et
+  faisait échouer tous les tours suivants. L'historique envoyé écarte désormais les réponses vides ou en
+  erreur avec la question à laquelle elles répondaient (l'affichage n'est pas modifié), et une sortie vide
+  affiche un avis explicite au lieu d'une bulle blanche.
 - **Fiche article — versions** : sous la barre « Versions de cet article », un bloc gris affichait le texte d'une
   AUTRE version (le plus souvent la version actuelle) au-dessus de la rédaction réellement affichée, ce qui
   prêtait à confusion. Les pastilles de versions sont des liens de navigation : plus aucun texte n'y est inséré.
