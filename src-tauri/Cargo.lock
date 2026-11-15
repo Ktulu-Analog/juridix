@@ -2575,7 +2575,7 @@ version = "1.1.5"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "dotenvy",
